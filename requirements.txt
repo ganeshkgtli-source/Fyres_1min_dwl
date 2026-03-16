@@ -1,0 +1,16 @@
+Django>=4.2,<5.0
+djangorestframework>=3.14
+
+pandas>=2.1
+numpy>=1.26
+
+requests>=2.31
+
+fyers-apiv3>=3.0.0
+
+cryptography>=41.0
+
+python-dotenv>=1.0
+
+gunicorn>=21.2
+whitenoise>=6.6
