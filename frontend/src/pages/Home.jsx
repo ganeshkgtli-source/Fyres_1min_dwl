@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import API from "../api/api";
 import { useNavigate } from "react-router-dom";
+import "../styles/home.css";
 
 function Home() {
 
@@ -27,7 +28,7 @@ function Home() {
 
         const res = await API.get(`/check-token/${clientId}/`);
 
-        if (res.data.token_exists === false) {
+        if (!res.data.token_exists) {
           setShowPopup(true);
         }
 
@@ -44,7 +45,7 @@ function Home() {
   }, [clientId, navigate]);
 
 
-  /* TOKEN GENERATION */
+  /* GENERATE FYERS TOKEN */
 
   const generateToken = () => {
 
@@ -78,7 +79,7 @@ function Home() {
 
     } catch {
 
-      alert("Failed to download BSE symbols");
+      alert("Download failed");
 
     }
 
@@ -101,7 +102,7 @@ function Home() {
 
     } catch {
 
-      alert("Failed to download 1 minute data");
+      alert("Download failed");
 
     }
 
@@ -112,37 +113,83 @@ function Home() {
 
   /* DOWNLOAD DAY */
 
-  const downloadDay = () => {
+  const downloadDay = async () => {
 
     if (!date) {
-      alert("Select a date");
+      alert("Select date");
       return;
     }
 
-    navigate(`/logs/day/${date}`);
+    try {
+
+      setLoading(true);
+
+      const res = await API.post("/download-day/", {
+        date: date
+      });
+
+      alert(res.data.message);
+
+    } catch {
+
+      alert("Download failed");
+
+    }
+
+    setLoading(false);
 
   };
 
 
   /* DOWNLOAD YEAR */
 
-  const startYearDownload = () => {
+  const downloadYear = async () => {
 
     if (!year) {
       alert("Enter year");
       return;
     }
 
-    navigate(`/logs/${year}`);
+    try {
+
+      setLoading(true);
+
+      const res = await API.post("/download-year/", {
+        year: year
+      });
+
+      alert(res.data.message);
+
+    } catch {
+
+      alert("Download failed");
+
+    }
+
+    setLoading(false);
 
   };
 
 
   /* DOWNLOAD ALL */
 
-  const downloadAll = () => {
+  const downloadAll = async () => {
 
-    navigate("/logs-all");
+    try {
+
+      setLoading(true);
+
+      const res = await API.post("/download-all/");
+
+      alert(res.data.message);
+
+    } catch {
+
+      alert("Download failed");
+
+    }
+
+    setLoading(false);
 
   };
 
@@ -186,7 +233,7 @@ function Home() {
         </div>
 
 
-        {/* CARDS */}
+        {/* INFO CARDS */}
 
         <div className="cards">
 
@@ -208,7 +255,7 @@ function Home() {
         </div>
 
 
-        {/* FYERS */}
+        {/* FYERS DATA */}
 
         <div className="section">
 
@@ -254,6 +301,7 @@ function Home() {
             <button
               className="btn"
               onClick={downloadDay}
+              disabled={loading}
             >
               Download Day
             </button>
@@ -280,7 +328,8 @@ function Home() {
 
             <button
               className="btn"
-              onClick={startYearDownload}
+              onClick={downloadYear}
+              disabled={loading}
             >
               Start Download
             </button>
@@ -290,7 +339,7 @@ function Home() {
         </div>
 
 
-        {/* ALL DATA */}
+        {/* DOWNLOAD ALL */}
 
         <div className="section">
 
@@ -299,6 +348,7 @@ function Home() {
           <button
             className="btn"
             onClick={downloadAll}
+            disabled={loading}
           >
             Download All Data Till Today
           </button>
@@ -316,9 +366,9 @@ function Home() {
 
           <div className="popup">
 
-            <h3>Generate Fyers Access Token</h3>
+            <h3>Generate Fyers Token</h3>
 
-            <p>Token required for today's session</p>
+            <p>Token required for today session</p>
 
             <button onClick={generateToken}>
               Generate Token

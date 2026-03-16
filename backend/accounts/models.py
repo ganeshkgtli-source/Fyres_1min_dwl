@@ -86,9 +86,12 @@ class FyersAccount(models.Model):
         return self.client_id
 
 
+from django.db import models
+
+
 class BhavcopyFile(models.Model):
 
-    file_name = models.CharField(max_length=255, unique=True)
+    file_name = models.CharField(max_length=200, unique=True)
 
     trade_date = models.DateField()
 
@@ -100,22 +103,30 @@ class BhavcopyFile(models.Model):
 
     is_deleted = models.BooleanField(default=False)
 
+    def __str__(self):
+        return self.file_name
+
+
 class DownloadLog(models.Model):
 
-    file_name = models.CharField(max_length=255, unique=True)
+    file_name = models.CharField(max_length=200, unique=True)
 
-    trade_date = models.DateField(null=True)
+    trade_date = models.DateField(null=True, blank=True)
 
     week_day = models.CharField(max_length=20)
 
-    status = models.CharField(max_length=50)
+    status = models.CharField(max_length=20)
 
-    download_time = models.DateTimeField()
+    download_time = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.file_name
+
 
 class GeneratedFile(models.Model):
 
-    file_name = models.CharField(max_length=255)
+    file_name = models.CharField(max_length=200)
 
-    created_at = models.DateTimeField()
+    created_at = models.DateTimeField(auto_now_add=True)
 
     file_data = models.BinaryField()

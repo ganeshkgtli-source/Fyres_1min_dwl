@@ -1,20 +1,28 @@
 import { useNavigate } from "react-router-dom";
+import "../styles/navbar.css";
 
 function Navbar(){
 
-const navigate = useNavigate()
+const navigate = useNavigate();
 
 return(
 
 <div className="navbar">
 
-<div className="logo">
-<span>T</span>IME
-<span>L</span>INE
-<span>I</span>NVESTMENTS
-<span>P</span>VT
-<span>L</span>TD
+{/* COMPANY NAME */}
+
+<div className="logo" onClick={()=>navigate("/")} >
+
+<span className="logo-red">T</span>ime&nbsp;
+<span className="logo-red">L</span>ine&nbsp;
+<span className="logo-red">I</span>nvestments&nbsp;
+<span className="logo-red">P</span>vt&nbsp;
+<span className="logo-red">L</span>td
+
 </div>
+
+
+{/* NAV BUTTONS */}
 
 <div className="nav-buttons">
 

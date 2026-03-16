@@ -1,122 +1,114 @@
-import { useEffect, useState } from "react"
-import API from "../api/api"
-import Navbar from "../components/Navbar"
+import { useEffect, useState } from "react";
+import API from "../api/api";
+import Navbar from "../components/Navbar";
+import "../styles//files.css";
 
 function Files(){
 
-const [files,setFiles] = useState([])
-const [selected,setSelected] = useState([])
+const [files,setFiles] = useState([]);
+const [years,setYears] = useState([]);
+const [months,setMonths] = useState([]);
 
-const [year,setYear] = useState("")
-const [month,setMonth] = useState("")
+const [selected,setSelected] = useState([]);
 
-
-// LOAD FILES
+const [year,setYear] = useState("");
+const [month,setMonth] = useState("");
 
 useEffect(()=>{
 
-fetchFiles()
+fetchFiles();
 
-},[])
+},[]);
 
 
 const fetchFiles = async()=>{
 
-const res = await API.get("/files/")
+const res = await API.get("/files/");
 
-setFiles(res.data)
+setFiles(res.data.files);
+setYears(res.data.years);
+setMonths(res.data.months);
 
-}
+};
 
 
-// TOGGLE FILE
+// FILTER BUTTON
+const applyFilter = async()=>{
+
+const res = await API.get(`/files/?year=${year}&month=${month}`);
+
+setFiles(res.data.files);
+
+};
+
+
+// RESET BUTTON
+const resetFilter = async()=>{
+
+setYear("");
+setMonth("");
+
+fetchFiles();
+
+};
+
 
 const toggleFile=(id)=>{
 
 if(selected.includes(id))
-setSelected(selected.filter(x=>x!==id))
-
+setSelected(selected.filter(x=>x!==id));
 else
-setSelected([...selected,id])
+setSelected([...selected,id]);
 
-}
+};
 
-
-// SELECT ALL
 
 const selectAll=()=>{
 
-setSelected(files.map(f=>f.id))
+setSelected(files.map(f=>f.id));
 
-}
+};
 
-
-// UNSELECT ALL
 
 const unselectAll=()=>{
 
-setSelected([])
+setSelected([]);
 
-}
+};
 
-
-// DOWNLOAD SELECTED
 
 const downloadSelected = async()=>{
 
-if(selected.length===0){
-alert("Select files first")
-return
-}
+await API.post("/download-selected/",{ids:selected});
 
-await API.post("/download-selected/",{ids:selected})
+alert("Download started");
 
-alert("Download started")
+};
 
-}
-
-
-// MOVE TO TRASH
 
 const moveToTrash = async()=>{
 
-if(selected.length===0){
-alert("Select files first")
-return
-}
+await API.post("/move-to-trash/",{ids:selected});
 
-await API.post("/move-to-trash/",{ids:selected})
+alert("Moved to trash");
 
-alert("Moved to trash")
+fetchFiles();
 
-fetchFiles()
-
-}
-
-
-// FILTER
-
-const filteredFiles = files.filter(f=>{
-
-return (
-(!year || f.year==year) &&
-(!month || f.month==month)
-)
-
-})
-
+};
 
 
 return(
 
-<div>
+<div className="files-page">
 
 <Navbar/>
 
+<div className="files-container">
 
-{/* TOP ACTION BAR */}
+<h2 className="page-title">Files</h2>
 
-<div style={{margin:"20px"}}>
+
+<div className="action-bar">
 
 <button className="btn select" onClick={selectAll}>
 Select All
@@ -137,50 +129,41 @@ Move To Trash
 
 {/* FILTERS */}
 
-<select
-value={year}
-onChange={e=>setYear(e.target.value)}
-style={{marginLeft:"20px"}}
->
+<div className="filters">
 
-<option value="">All Years</option>
+<select value={year} onChange={e=>setYear(e.target.value)}>
+<option value="">Year</option>
 
-{[2025,2024,2023,2022].map(y=>(
-
+{years.map(y=>(
 <option key={y}>{y}</option>
-
 ))}
 
 </select>
 
 
-<select
-value={month}
-onChange={e=>setMonth(e.target.value)}
->
+<select value={month} onChange={e=>setMonth(e.target.value)}>
 
-<option value="">All Months</option>
+<option value="">Month</option>
 
-<option value="01">Jan</option>
-<option value="02">Feb</option>
-<option value="03">Mar</option>
-<option value="04">Apr</option>
-<option value="05">May</option>
-<option value="06">Jun</option>
-<option value="07">Jul</option>
-<option value="08">Aug</option>
-<option value="09">Sep</option>
-<option value="10">Oct</option>
-<option value="11">Nov</option>
-<option value="12">Dec</option>
+{months.map(m=>(
+<option key={m}>{m}</option>
+))}
 
 </select>
 
+
+<button className="btn filter" onClick={applyFilter}>
+Filter
+</button>
+
+<button className="btn reset" onClick={resetFilter}>
+Reset
+</button>
+
 </div>
 
+</div>
 
-
-{/* FILE TABLE */}
 
 <div className="table-container">
 
@@ -189,40 +172,32 @@ onChange={e=>setMonth(e.target.value)}
 <thead>
 
 <tr>
-
 <th></th>
 <th>File Name</th>
-<th>Trade Date</th>
+<th>Date</th>
 <th>Year</th>
 <th>Month</th>
-
 </tr>
 
 </thead>
 
 <tbody>
 
-{filteredFiles.map(file=>(
+{files.map(file=>(
 
 <tr key={file.id}>
 
 <td>
-
 <input
 type="checkbox"
-className="fileCheckbox"
 checked={selected.includes(file.id)}
 onChange={()=>toggleFile(file.id)}
 />
-
 </td>
 
-<td>{file.name}</td>
-
-<td>{file.date}</td>
-
+<td>{file.file_name}</td>
+<td>{file.trade_date}</td>
 <td>{file.year}</td>
-
 <td>{file.month}</td>
 
 </tr>
@@ -237,8 +212,10 @@ onChange={()=>toggleFile(file.id)}
 
 </div>
 
-)
+</div>
+
+);
 
 }
 
-export default Files
+export default Files;

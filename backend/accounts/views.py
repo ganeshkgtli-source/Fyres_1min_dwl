@@ -1,29 +1,46 @@
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
 from django.contrib.auth.hashers import check_password
-from datetime import date
-from urllib.parse import quote
 from django.shortcuts import redirect
-
-from fyers_apiv3 import fyersModel
-
-from .utils.fyers_auth import generate_fyers_token
-from .models import User, AccessToken
+from urllib.parse import quote
+from datetime import date
+import datetime
+import io
+import zipfile
+from django.http import JsonResponse
+from .models import BhavcopyFile
+import json
+from django.views.decorators.csrf import csrf_exempt
+from .models import User, AccessToken, BhavcopyFile, DownloadLog
 from .serializers import LoginSerializer, RegisterSerializer
 
-import datetime
-from django.http import HttpResponse
-from rest_framework.decorators import api_view
-from rest_framework.response import Response
- 
-from accounts.services.symbol_service import download_bse_symbols, get_filtered_symbols
-from accounts.services.downloader.bhavcopy_downloader import download_bhavcopy
-from accounts.services.matrix.matrix_generator import create_presence_matrix
-from accounts.services.files.file_service import download_selected_files
- 
+from .utils.fyers_auth import generate_fyers_token
+
+from accounts.services.symbol_service import (
+    download_bse_symbols,
+    get_filtered_symbols
+)
+
+from accounts.services.history_service import download_1min_data
+
+from accounts.services.bhavcopy_service import (
+    download_bhavcopy,
+    download_year_data,
+    download_all_data
+)
+
+from accounts.services.matrix_service import (
+    create_presence_matrix_from_db,
+    get_latest_matrix,
+    get_latest_matrix_data
+)
+
+
+# =========================
 # USER REGISTER
- 
+# =========================
+
 @api_view(["POST"])
 def register_user(request):
 
@@ -39,8 +56,11 @@ def register_user(request):
 
     return Response(serializer.errors, status=400)
 
- 
+
+# =========================
 # USER LOGIN
+# =========================
+
 @api_view(["POST"])
 def login_view(request):
 
@@ -67,14 +87,12 @@ def login_view(request):
         token_date=today
     ).first()
 
-    # TOKEN EXISTS → LOGIN SUCCESS
     if token:
         return Response({
             "status": "login_success",
             "client_id": user.client_id
         })
 
-    # TOKEN NOT FOUND → LOGIN TO FYERS
     redirect_uri = quote("http://127.0.0.1:8000/api/fyers-callback/")
 
     auth_url = (
@@ -92,9 +110,10 @@ def login_view(request):
     })
 
 
- 
-# FYERS LOGIN (DIRECT)
- 
+# =========================
+# FYERS LOGIN
+# =========================
+
 @api_view(["GET"])
 def fyers_login(request, client_id):
 
@@ -113,14 +132,13 @@ def fyers_login(request, client_id):
         f"&state={user.client_id}"
     )
 
-    print("Generated Auth URL:", auth_url)
-
     return redirect(auth_url)
 
 
- 
+# =========================
 # TOKEN CHECK
- 
+# =========================
+
 @api_view(["GET"])
 def check_token(request, client_id):
 
@@ -131,17 +149,16 @@ def check_token(request, client_id):
         token_date=today
     ).first()
 
-    print(f"Checking token for client_id: {client_id}, token found: {bool(token)}")
-
     if token:
         return Response({"token_exists": True})
 
     return Response({"token_exists": False})
 
 
- 
+# =========================
 # FYERS CALLBACK
- 
+# =========================
+
 def fyers_callback(request):
 
     auth_code = request.GET.get("auth_code") or request.GET.get("code")
@@ -166,15 +183,12 @@ def fyers_callback(request):
         defaults={"access_token": access_token}
     )
 
-    print("Access token stored successfully")
-
-    # Redirect to frontend home
     return redirect("http://localhost:5173/")
 
 
-
-
- 
+# =========================
+# BSE SYMBOL DOWNLOAD
+# =========================
 
 def download_bse_file(request):
 
@@ -202,9 +216,9 @@ def download_bse_file(request):
         })
 
 
-
-from accounts.services.history_service import download_1min_data
-
+# =========================
+# 1 MIN DATA DOWNLOAD
+# =========================
 
 def download_1min_history(request):
 
@@ -227,9 +241,12 @@ def download_1min_history(request):
         })
 
 
+# =========================
+# BHAVCOPY DOWNLOAD
+# =========================
 
 @api_view(["POST"])
-def download_date(request):
+def download_day(request):
 
     date_str = request.data.get("date")
 
@@ -237,82 +254,265 @@ def download_date(request):
 
     result = download_bhavcopy(date_obj)
 
-    return Response({"status": result})
+    return Response({"message": result})
 
 
 @api_view(["POST"])
-def generate_matrix(request):
+def download_year(request):
 
-    result = create_presence_matrix()
+    year = request.data.get("year")
 
-    return Response({"status": result})
+    if not year:
+        return Response({"error": "Year required"}, status=400)
+
+    result = download_year_data(int(year))
+
+    return Response({"message": result})
 
 
 @api_view(["POST"])
-def download_files(request):
+def download_all(request):
 
-    ids = request.data.get("ids")
+    result = download_all_data()
 
-    zip_buffer = download_selected_files(ids)
+    return Response({"message": result})
 
-    response = HttpResponse(zip_buffer, content_type="application/zip")
 
-    response["Content-Disposition"] = "attachment; filename=Bhavcopy.zip"
+# =========================
+# FILE MANAGEMENT
+# =========================
+
+@api_view(["POST"])
+def download_selected(request):
+
+    ids = request.data.get("file_ids", [])
+
+    if not ids:
+        return Response({"error": "No files selected"}, status=400)
+
+    zip_buffer = io.BytesIO()
+
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as z:
+
+        files = BhavcopyFile.objects.filter(id__in=ids)
+
+        for file in files:
+
+            zip_path = f"Bhavcopy/{file.year}/{file.month}/{file.file_name}"
+
+            z.writestr(zip_path, file.file_data)
+
+    zip_buffer.seek(0)
+
+    response = HttpResponse(
+        zip_buffer,
+        content_type="application/zip"
+    )
+
+    response["Content-Disposition"] = 'attachment; filename="Bhavcopy_Files.zip"'
 
     return response
 
-import datetime
-from django.http import StreamingHttpResponse
-from accounts.services.downloader.bhavcopy_downloader import download_bhavcopy
 
-DOWNLOAD_STATE = {}
+@api_view(["POST"])
+def delete_selected(request):
+
+    ids = request.data.get("file_ids", [])
+
+    files = BhavcopyFile.objects.filter(id__in=ids)
+
+    count = files.count()
+
+    for f in files:
+        DownloadLog.objects.filter(file_name=f.file_name).delete()
+
+    files.delete()
+
+    return Response({"message": f"{count} files deleted"})
 
 
-def stream_logs_year(request, year):
+@api_view(["POST"])
+def delete_temp(request):
 
-    if year not in DOWNLOAD_STATE:
-        DOWNLOAD_STATE[year] = {
-            "running": False,
-            "logs": []
-        }
+    ids = request.data.get("file_ids", [])
 
-    def generate():
+    files = BhavcopyFile.objects.filter(id__in=ids)
 
-        state = DOWNLOAD_STATE[year]
+    files.update(is_deleted=True)
 
-        if state["running"]:
-            for log in state["logs"]:
-                yield f"data: {log}\n\n"
-            return
+    return Response({"message": "Moved to Trash"})
 
-        state["running"] = True
-        state["logs"].clear()
 
-        start_date = datetime.date(year, 1, 1)
-        end_date = datetime.date(year, 12, 31)
+@api_view(["GET"])
+def view_trash(request):
 
-        current = start_date
+    files = BhavcopyFile.objects.filter(is_deleted=True).values()
 
-        while current <= end_date:
+    return Response(list(files))
 
-            log = f"Downloading {current}"
-            state["logs"].append(log)
-            yield f"data: {log}\n\n"
 
-            result = download_bhavcopy(current)
+@api_view(["GET"])
+def view_files(request):
 
-            state["logs"].append(result)
-            yield f"data: {result}\n\n"
+    year = request.GET.get("year")
+    month = request.GET.get("month")
 
-            current += datetime.timedelta(days=1)
+    files = BhavcopyFile.objects.filter(is_deleted=False)
 
-        finish = f"Completed {year}"
-        state["logs"].append(finish)
-        yield f"data: {finish}\n\n"
+    if year:
+        files = files.filter(year=year)
 
-        state["running"] = False
+    if month:
+        files = files.filter(month=month)
 
-    return StreamingHttpResponse(
-        generate(),
-        content_type="text/event-stream"
+    return Response(list(files.values()))
+
+
+# =========================
+# MATRIX
+# =========================
+
+@api_view(["GET"])
+def generate_matrix(request):
+
+    result = create_presence_matrix_from_db()
+
+    return Response({"status": result})
+
+
+def download_matrix(request):
+
+    row = get_latest_matrix()
+
+    if not row:
+        return HttpResponse("No file available")
+
+    file_name, file_data = row
+
+    response = HttpResponse(
+        file_data,
+        content_type="text/csv"
     )
+
+    response["Content-Disposition"] = f'attachment; filename="{file_name}"'
+
+    return response
+
+
+def matrix_file(request):
+
+    row = get_latest_matrix_data()
+
+    if not row:
+        return HttpResponse("No file found")
+
+    return HttpResponse(
+        row[0],
+        content_type="text/csv"
+    )
+
+
+# =========================
+# LOGS
+# =========================
+
+@api_view(["GET"])
+def log_dashboard(request):
+
+    logs = DownloadLog.objects.all().order_by("-trade_date")
+
+    return Response(list(logs.values()))
+
+
+def view_files(request):
+
+    year = request.GET.get("year")
+    month = request.GET.get("month")
+
+    files = BhavcopyFile.objects.filter(is_deleted=False)
+
+    if year:
+        files = files.filter(year=year)
+
+    if month:
+        files = files.filter(month=month)
+
+    files = files.order_by("-trade_date")
+
+    data = [
+        {
+            "id": f.id,
+            "file_name": f.file_name,
+            "trade_date": f.trade_date,
+            "year": f.year,
+            "month": f.month
+        }
+        for f in files
+    ]
+
+    years = BhavcopyFile.objects.values_list(
+        "year", flat=True
+    ).distinct().order_by("-year")
+
+    months = BhavcopyFile.objects.values_list(
+        "month", flat=True
+    ).distinct().order_by("month")
+
+    return JsonResponse({
+        "files": data,
+        "years": list(years),
+        "months": list(months)
+    })
+
+def view_trash(request):
+
+    year = request.GET.get("year")
+    month = request.GET.get("month")
+
+    files = BhavcopyFile.objects.filter(is_deleted=True)
+
+    if year:
+        files = files.filter(year=year)
+
+    if month:
+        files = files.filter(month=month)
+
+    files = files.order_by("-trade_date")
+
+    data = [
+        {
+            "id": f.id,
+            "file_name": f.file_name,
+            "trade_date": f.trade_date,
+            "year": f.year,
+            "month": f.month
+        }
+        for f in files
+    ]
+
+    return JsonResponse({"files": data})
+
+
+@csrf_exempt
+def delete_selected(request):
+
+    if request.method == "POST":
+
+        body = json.loads(request.body)
+        ids = body.get("ids", [])
+
+        BhavcopyFile.objects.filter(id__in=ids).update(is_deleted=True)
+
+        return JsonResponse({"message": "Moved to trash"})
+
+@csrf_exempt
+def delete_permanent(request):
+
+    if request.method == "POST":
+
+        body = json.loads(request.body)
+        ids = body.get("ids", [])
+
+        BhavcopyFile.objects.filter(id__in=ids).delete()
+
+        return JsonResponse({"message": "Deleted permanently"})

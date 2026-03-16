@@ -20,13 +20,12 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-m_=&kfa9k#0v(dt!s@%m-janwt3z-rry72ooi#&&g&ag34vn9#'
+SECRET_KEY = config("SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = config("DEBUG", default=True, cast=bool)
 
-ALLOWED_HOSTS = []
-
+ALLOWED_HOSTS = ["*"]
 
 # Application definition
 
@@ -37,23 +36,20 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'core',
     'rest_framework',
      "corsheaders",
     "accounts"
 ]
 
 MIDDLEWARE = [
-    'django.middleware.security.SecurityMiddleware',
-    'django.contrib.sessions.middleware.SessionMiddleware',
-    'django.middleware.common.CommonMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware',
-    'django.contrib.auth.middleware.AuthenticationMiddleware',
-    'django.contrib.messages.middleware.MessageMiddleware',
-    'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    "django.middleware.security.SecurityMiddleware",
     "corsheaders.middleware.CorsMiddleware",
-        "django.middleware.security.SecurityMiddleware",
+    "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
+    "django.middleware.csrf.CsrfViewMiddleware",
+    "django.contrib.auth.middleware.AuthenticationMiddleware",
+    "django.contrib.messages.middleware.MessageMiddleware",
+    "django.middleware.clickjacking.XFrameOptionsMiddleware",
 ]
 
 ROOT_URLCONF = 'config.urls'
@@ -77,10 +73,10 @@ WSGI_APPLICATION = 'config.wsgi.application'
 # ENCRYPTION_KEY = b'YOUR_GENERATED_KEY'
 ENCRYPTION_KEY = config("ENCRYPTION_KEY").encode()
 CORS_ALLOW_ALL_ORIGINS = True
-CORS_ALLOW_HEADERS = [
-    "content-type",
-    "authorization",
-]
+# CORS_ALLOW_HEADERS = [
+#     "content-type",
+#     "authorization",
+# ]
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
@@ -93,15 +89,6 @@ DATABASES = {
         "PASSWORD": config("DB_PASSWORD"),
         "HOST": config("DB_HOST"),
         "PORT": config("DB_PORT"),
-    }
-    ,
-     "second_db": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": config("DB2_NAME"),
-        "USER": config("DB2_USER"),
-        "PASSWORD": config("DB2_PASSWORD"),
-        "HOST": config("DB2_HOST"),
-        "PORT": config("DB2_PORT"),
     }
 }
 
