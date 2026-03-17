@@ -143,55 +143,25 @@ function Home() {
 
   /* DOWNLOAD YEAR */
 
-  const downloadYear = async () => {
+ const downloadYear = () => {
 
-    if (!year) {
-      alert("Enter year");
-      return;
-    }
+  if (!year) {
+    alert("Enter year");
+    return;
+  }
 
-    try {
+  navigate(`/logs?year=${year}`);
 
-      setLoading(true);
-
-      const res = await API.post("/download-year/", {
-        year: year
-      });
-
-      alert(res.data.message);
-
-    } catch {
-
-      alert("Download failed");
-
-    }
-
-    setLoading(false);
-
-  };
+};
 
 
   /* DOWNLOAD ALL */
 
-  const downloadAll = async () => {
+const downloadAll = () => {
 
-    try {
+  navigate(`/logs?all=true`);
 
-      setLoading(true);
-
-      const res = await API.post("/download-all/");
-
-      alert(res.data.message);
-
-    } catch {
-
-      alert("Download failed");
-
-    }
-
-    setLoading(false);
-
-  };
+};
 
 
   return (

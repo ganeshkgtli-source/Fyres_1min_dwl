@@ -3,9 +3,17 @@ import zipfile
 import io
 import datetime
 import pandas as pd
+import os
+
+from django.conf import settings
+from django.utils.timezone import now
 
 from accounts.models import BhavcopyFile, DownloadLog, GeneratedFile
 
+
+# -------------------------
+# SESSION SETUP
+# -------------------------
 
 session = requests.Session()
 
@@ -42,10 +50,12 @@ def build_bse_url(date_obj):
 
 
 # -------------------------
-# SYMBOL MAP
+# SYMBOL MAP (FIXED PATH)
 # -------------------------
 
-symbol_df = pd.read_csv("./BSE_CM_symbol_list1.csv", header=None)
+file_path = os.path.join(settings.BASE_DIR, "BSE_CM_symbol_list1.csv")
+
+symbol_df = pd.read_csv(file_path, header=None)
 
 mapping_df = symbol_df.iloc[:, [12, 9]]
 
@@ -95,7 +105,6 @@ def process_csv_before_2024(file_bytes):
     ]
 
     output = io.StringIO()
-
     df.to_csv(output, index=False)
 
     return output.getvalue().encode()
@@ -118,7 +127,7 @@ def process_bhavcopy_after_2024(file_bytes):
         "HghPric": "HIGH",
         "LwPric": "LOW",
         "ClsPric": "CLOSE",
-        "TtlNbOfTxsExctd": "NO_OF_TRADE",
+        "TtlNbOfTxsExctd": "NO_OF_TRADES",   # ✅ FIXED NAME
         "TtlTradgVol": "NO_OF_SHRS"
     })
 
@@ -150,31 +159,29 @@ def process_bhavcopy_after_2024(file_bytes):
             "HIGH",
             "LOW",
             "CLOSE",
-            "NO_OF_TRADE",
+            "NO_OF_TRADES",
             "NO_OF_SHRS"
         ]
     ]
 
     output = io.StringIO()
-
     df.to_csv(output, index=False)
 
     return output.getvalue().encode()
 
 
 # -------------------------
-# SAVE LOG
+# SAVE LOG (FIXED)
 # -------------------------
 
 def save_log(file_name, trade_date, week_day, status):
 
-    DownloadLog.objects.update_or_create(
+    DownloadLog.objects.create(
         file_name=file_name,
-        defaults={
-            "trade_date": trade_date,
-            "week_day": week_day,
-            "status": status
-        }
+        trade_date=trade_date,
+        week_day=week_day,
+        status=status,
+        download_time=now()   # ✅ ADDED
     )
 
 
@@ -187,8 +194,7 @@ def download_bhavcopy(date_obj):
     day_name = date_obj.strftime("%A")
 
     if BhavcopyFile.objects.filter(trade_date=date_obj).exists():
-
-        return f"Already exists in DB: {date_obj} ({day_name})"
+        return f"EXISTS: {date_obj.strftime('%d-%m-%y')}"
 
     file_type, url = build_bse_url(date_obj)
 
@@ -200,9 +206,9 @@ def download_bhavcopy(date_obj):
 
             file_name = f"EQ{date_obj.strftime('%d%m%y')}.CSV"
 
-            save_log(file_name, date_obj, day_name, "Not Available")
+            save_log(file_name, date_obj, day_name, "NOT_AVAILABLE")
 
-            return f"File not available: {date_obj}"
+            return f"NOT_AVAILABLE: {date_obj.strftime('%d-%m-%y')}"
 
         if file_type == "ZIP":
 
@@ -214,15 +220,17 @@ def download_bhavcopy(date_obj):
 
                     processed = process_csv_before_2024(raw_bytes)
 
-                    BhavcopyFile.objects.create(
-                        file_name=file,
+                    BhavcopyFile.objects.get_or_create(
                         trade_date=date_obj,
-                        year=date_obj.year,
-                        month=date_obj.strftime("%b").upper(),
-                        file_data=processed
+                        defaults={
+                            "file_name": file,
+                            "year": date_obj.year,
+                            "month": date_obj.strftime("%b").upper(),
+                            "file_data": processed
+                        }
                     )
 
-                    save_log(file, date_obj, day_name, "Downloaded")
+                    save_log(file, date_obj, day_name, "DOWNLOADED")
 
         else:
 
@@ -230,26 +238,27 @@ def download_bhavcopy(date_obj):
 
             processed = process_bhavcopy_after_2024(response.content)
 
-            BhavcopyFile.objects.create(
-                file_name=file_name,
+            BhavcopyFile.objects.get_or_create(
                 trade_date=date_obj,
-                year=date_obj.year,
-                month=date_obj.strftime("%b").upper(),
-                file_data=processed
+                defaults={
+                    "file_name": file_name,
+                    "year": date_obj.year,
+                    "month": date_obj.strftime("%b").upper(),
+                    "file_data": processed
+                }
             )
 
-            save_log(file_name, date_obj, day_name, "Downloaded")
+            save_log(file_name, date_obj, day_name, "DOWNLOADED")
 
-        return f"Downloaded: {date_obj}"
+        return f"DOWNLOADED: {date_obj.strftime('%d-%m-%y')}"
 
     except Exception as e:
 
         file_name = f"EQ{date_obj.strftime('%d%m%y')}.CSV"
 
-        save_log(file_name, date_obj, day_name, "Error")
+        save_log(file_name, date_obj, day_name, "ERROR")
 
-        return f"Error {date_obj}: {e}"
-    
+        return f"ERROR {date_obj.strftime('%d-%m-%y')}: {str(e)}"
 
 
 # -------------------------------------------------
@@ -259,7 +268,6 @@ def download_bhavcopy(date_obj):
 def download_year_data(year):
 
     start_date = datetime.date(year, 1, 1)
-
     end_date = datetime.date(year, 12, 31)
 
     current = start_date
@@ -267,7 +275,6 @@ def download_year_data(year):
     while current <= end_date:
 
         result = download_bhavcopy(current)
-
         print(result)
 
         current += datetime.timedelta(days=1)
@@ -282,11 +289,9 @@ def download_year_data(year):
 def download_all_data():
 
     start_year = 2017
-
     current_year = datetime.date.today().year
 
     for year in range(start_year, current_year + 1):
-
         download_year_data(year)
 
     return "All years downloaded"

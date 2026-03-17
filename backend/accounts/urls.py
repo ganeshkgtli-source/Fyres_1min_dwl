@@ -48,4 +48,7 @@ urlpatterns = [
     # LOGS
  
     path("logs/", views.log_dashboard),
+    
+    path("stream-logs/<int:year>/", views.stream_logs),
+    path("stream-all-logs/", views.stream_all_logs),
 ]

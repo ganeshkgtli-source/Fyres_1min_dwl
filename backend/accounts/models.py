@@ -109,7 +109,7 @@ class BhavcopyFile(models.Model):
 
 class DownloadLog(models.Model):
 
-    file_name = models.CharField(max_length=200, unique=True)
+    file_name = models.CharField(max_length=200)
 
     trade_date = models.DateField(null=True, blank=True)
 

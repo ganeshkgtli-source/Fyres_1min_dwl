@@ -1,48 +1,130 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
+import { useLocation } from "react-router-dom"
 import Navbar from "../components/Navbar"
+import "../styles/files.css"
 
 function Logs(){
 
 const [logs,setLogs] = useState([])
+const logEndRef = useRef(null)
+const location = useLocation()
 
 useEffect(()=>{
 
-const source = new EventSource("http://127.0.0.1:8000/api/stream-logs")
+const params = new URLSearchParams(location.search)
+
+const year = params.get("year")
+const isAll = params.get("all")
+
+let url = ""
+
+// ✅ FIXED URL LOGIC
+if(year){
+  url = `http://127.0.0.1:8000/api/stream-logs/${year}/`
+}
+else if(isAll){
+  url = `http://127.0.0.1:8000/api/stream-all-logs/`
+}
+else{
+  console.error("No params provided")
+  return
+}
+
+console.log("Connecting to:", url)
+
+const source = new EventSource(url)
 
 source.onmessage = (event)=>{
 
-setLogs(prev=>[...prev,event.data])
+const message = event.data || "Empty log"
 
+// ⏱ timestamp
+const time = new Date().toLocaleTimeString("en-GB", {
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit"
+})
+
+setLogs(prev => [
+  ...prev,
+  { text: message, time }
+])
+
+}
+
+source.onerror = (err)=>{
+  console.error("SSE Error:", err)
+  source.close()
 }
 
 return ()=>source.close()
 
-},[])
+},[location.search])
+
+
+// 🔽 AUTO SCROLL
+useEffect(()=>{
+  logEndRef.current?.scrollIntoView({ behavior: "smooth" })
+},[logs])
+
+
+// 🎯 STATUS COLOR (SAFE)
+const getClass = (log) => {
+
+if (!log || !log.text) return "log-normal"
+
+const text = log.text.toLowerCase()
+
+if (text.includes("downloading")) return "log-downloading"
+
+if (
+  text.includes("downloaded") ||
+  text.includes("saved") ||
+  text.includes("already exists")
+) return "log-success"
+
+if (
+  text.includes("not available") ||
+  text.includes("not found") ||
+  text.includes("error") ||
+  text.includes("failed")
+) return "log-failed"
+
+return "log-normal"
+}
 
 
 return(
 
-<div>
+<div className="files-page">
 
 <Navbar/>
 
-<h2 className="title">Live Download Console</h2>
+<div className="files-container">
 
-<div className="log-container">
+<h2 className="page-title">Live Download Console</h2>
 
-<div id="logBox">
+<div className="console-box">
 
-{logs.map((log,i)=>{
+{logs.length === 0 && (
+<div className="log-empty">Waiting for logs...</div>
+)}
 
-let color=""
+{logs.map((log,i)=>(
+<div key={i} className={`log-line ${getClass(log)}`}>
 
-if(log.includes("Downloading")) color="download"
-else if(log.includes("Downloaded") || log.includes("Saved")) color="success"
-else if(log.includes("Error")) color="error"
+<span className="log-time">
+[{log.time}]
+</span>
 
-return <div key={i} className={color}>{log}</div>
+<span className="log-text">
+{log.text}
+</span>
 
-})}
+</div>
+))}
+
+<div ref={logEndRef}></div>
 
 </div>
 

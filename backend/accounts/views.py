@@ -35,7 +35,13 @@ from accounts.services.matrix_service import (
     get_latest_matrix,
     get_latest_matrix_data
 )
+# views.py
 
+import datetime
+from django.http import StreamingHttpResponse
+from django.views.decorators.csrf import csrf_exempt
+
+DOWNLOAD_STATE = {}
 
 # =========================
 # USER REGISTER
@@ -354,9 +360,7 @@ def permanent_delete(request):
 # VIEW FILES
 # =========================
 
-from rest_framework.decorators import api_view
-from rest_framework.response import Response
-from .models import BhavcopyFile
+
 
 
 @api_view(["GET"])
@@ -504,3 +508,127 @@ def log_dashboard(request):
         }
         for l in logs
     ])
+
+
+@csrf_exempt
+def stream_logs(request, year):
+
+    year = int(year)
+
+    if year not in DOWNLOAD_STATE:
+        DOWNLOAD_STATE[year] = {
+            "running": False,
+            "logs": []
+        }
+
+    def generate():
+        state = DOWNLOAD_STATE[year]
+
+        # If already running → send old logs
+        if state["running"]:
+            for log in state["logs"]:
+                yield f"data: {log}\n\n"
+            return
+
+        state["running"] = True
+        state["logs"].clear()
+
+        start_date = datetime.date(year, 1, 1)
+        end_date = datetime.date(year, 12, 31)
+
+        current = start_date
+
+        while current <= end_date:
+
+            log = f"Downloading: {current}"
+            state["logs"].append(log)
+            yield f"data: {log}\n\n"
+
+            result = download_bhavcopy(current)
+
+            state["logs"].append(result)
+            yield f"data: {result}\n\n"
+
+            current += datetime.timedelta(days=1)
+
+        finish = f"Completed year {year}"
+        state["logs"].append(finish)
+        yield f"data: {finish}\n\n"
+
+        state["running"] = False
+
+    return StreamingHttpResponse(
+        generate(),
+        content_type="text/event-stream"
+    )
+
+@csrf_exempt
+def stream_all_logs(request):
+
+    key = "all"
+
+    if key not in DOWNLOAD_STATE:
+        DOWNLOAD_STATE[key] = {
+            "running": False,
+            "logs": []
+        }
+
+    def generate():
+        state = DOWNLOAD_STATE[key]
+
+        if state["running"]:
+            for log in state["logs"]:
+                yield f"data: {log}\n\n"
+            return
+
+        state["running"] = True
+        state["logs"].clear()
+
+        start_year = 2017
+        current_year = datetime.date.today().year
+
+        for year in range(start_year, current_year + 1):
+
+            log = f"Starting download for {year}"
+            state["logs"].append(log)
+            yield f"data: {log}\n\n"
+
+            start_date = datetime.date(year, 1, 1)
+
+            if year == current_year:
+                end_date = datetime.date.today()
+            else:
+                end_date = datetime.date(year, 12, 31)
+
+            current = start_date
+
+            while current <= end_date:
+
+                log = f"Downloading: {current}"
+                state["logs"].append(log)
+                yield f"data: {log}\n\n"
+
+                result = download_bhavcopy(current)
+
+                state["logs"].append(result)
+                yield f"data: {result}\n\n"
+
+                current += datetime.timedelta(days=1)
+
+            log = f"Completed year {year}"
+            state["logs"].append(log)
+            yield f"data: {log}\n\n"
+
+        finish = "Completed all years"
+        state["logs"].append(finish)
+        yield f"data: {finish}\n\n"
+
+        state["running"] = False
+
+    return StreamingHttpResponse(
+        generate(),
+        content_type="text/event-stream"
+    )
+
+
+
