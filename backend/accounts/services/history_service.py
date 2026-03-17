@@ -1,7 +1,6 @@
-
-import os
 import pandas as pd
 import time
+import io
 from datetime import datetime, timedelta
 from openpyxl import load_workbook
 from openpyxl.styles import PatternFill
@@ -10,25 +9,7 @@ from accounts.services.fyers_client import get_fyers_client
 from accounts.services.symbol_service import download_bse_symbols, get_filtered_symbols
 from accounts.services.data_formatter import convert_time
 
-
-# =========================================================
-# BHAVCOPY BASE DIRECTORY
-# =========================================================
-
-BHAVCOPY_BASE_DIR = r"C:\FYRES_NEW\backend\bhavcopy"
-
-
-# =========================================================
-# RESOLVE BHAVCOPY FILE PATH FOR A DATE
-# =========================================================
-
-def get_bhavcopy_path(date_obj):
-
-    year  = date_obj.strftime("%Y")
-    mon   = date_obj.strftime("%b").upper()
-    name  = date_obj.strftime("EQ%d%m%y.CSV")
-
-    return os.path.join(BHAVCOPY_BASE_DIR, year, mon, name)
+from accounts.models import BhavcopyFile, OneMinDataFile
 
 
 # =========================================================
@@ -86,16 +67,13 @@ def daterange_chunks(start, end, chunk=100):
     curr = start
 
     while curr < end:
-
         next_date = min(curr + timedelta(days=chunk-1), end)
-
         yield curr, next_date
-
         curr = next_date + timedelta(days=1)
 
 
 # =========================================================
-# APPEND EOD ROWS
+# APPEND EOD ROWS (FROM DB)
 # =========================================================
 
 def append_eod_rows(df, symbol):
@@ -104,7 +82,6 @@ def append_eod_rows(df, symbol):
         return df
 
     bse_symbol = symbol.strip()
-
     eod_time = datetime.strptime("15:30:59","%H:%M:%S").time()
 
     eod_rows = []
@@ -113,17 +90,20 @@ def append_eod_rows(df, symbol):
 
         date_obj = pd.to_datetime(date).date()
 
-        bhav_path = get_bhavcopy_path(date_obj)
-
-        if not os.path.exists(bhav_path):
-            continue
-
         try:
+            bhav_obj = BhavcopyFile.objects.filter(
+                trade_date=date_obj,
+                is_deleted=False
+            ).first()
 
-            bhav = pd.read_csv(bhav_path)
+            if not bhav_obj:
+                continue
+
+            bhav = pd.read_csv(io.BytesIO(bhav_obj.file_data))
             bhav.columns = bhav.columns.str.strip().str.upper()
 
-        except Exception:
+        except Exception as e:
+            print("BHAV DB ERROR:", e)
             continue
 
         bhav["SYMBOL"] = bhav["SYMBOL"].astype(str).str.strip()
@@ -143,7 +123,6 @@ def append_eod_rows(df, symbol):
             last_total = None
 
             if not day_df.empty:
-
                 last_close = float(day_df.iloc[-1]["CLOSE"])
                 last_total = float(day_df.iloc[-1]["TOTAL_VOLUME"])
 
@@ -170,7 +149,6 @@ def append_eod_rows(df, symbol):
             share_check = "YES" if last_total == eod_volume else "NO"
 
             eod_rows.append({
-
                 "DATE":date,
                 "DAY":pd.Timestamp(date_obj).day_name().upper(),
                 "TIME_FRAME":"EOD",
@@ -194,7 +172,7 @@ def append_eod_rows(df, symbol):
             })
 
         except Exception as e:
-            print("EOD ERROR:",e)
+            print("EOD ERROR:", e)
 
     if not eod_rows:
         return df
@@ -202,7 +180,6 @@ def append_eod_rows(df, symbol):
     eod_df = pd.DataFrame(eod_rows)
 
     final_df = pd.concat([df,eod_df],ignore_index=True)
-
     final_df = final_df.sort_values(["DATE","TIME"]).reset_index(drop=True)
 
     return final_df
@@ -230,7 +207,7 @@ def download_1min_data(client_id):
     start_date = datetime(2018,4,1)
     now = datetime.now()
 
-# If current time is before 4 PM, use previous day
+    # Before 4 PM → previous day
     if now.hour < 16:
         end_date = now - timedelta(days=1)
     else:
@@ -245,7 +222,6 @@ def download_1min_data(client_id):
         print("===================================")
 
         main_df = pd.DataFrame()
-
         rotation = 0
 
         for chunk_start,chunk_end in daterange_chunks(start_date,end_date):
@@ -253,7 +229,6 @@ def download_1min_data(client_id):
             print("ROTATION",rotation,"|",chunk_start.date(),"->",chunk_end.date())
 
             payload = {
-
                 "symbol":symbol,
                 "resolution":"1",
                 "date_format":"1",
@@ -263,21 +238,17 @@ def download_1min_data(client_id):
             }
 
             try:
-
                 history = fyers.history(payload)
-
                 api_calls += 1
 
                 if "candles" in history and history["candles"]:
 
                     df = pd.DataFrame(
-
                         history["candles"],
                         columns=["timestamp","open","high","low","close","volume"]
                     )
 
                     df = convert_time(df)
-
                     df = format_dataframe(df,symbol)
 
                     main_df = pd.concat([main_df,df],ignore_index=True)
@@ -285,47 +256,43 @@ def download_1min_data(client_id):
                     print("OK:",len(df),"rows")
 
                 else:
-
                     print("WARNING: No candles")
 
             except Exception as e:
-
                 print("ERROR:",e)
 
             rotation += 1
-
             time.sleep(0.3)
 
-        # -----------------------------------
+        
 
         if main_df.empty:
-
             print("WARNING: No data for",symbol)
 
         else:
-
             main_df = main_df.drop_duplicates(
                 subset=["DATE","TIME","SYMBOL"]
             ).reset_index(drop=True)
 
             print("Appending EOD rows")
-
             main_df = append_eod_rows(main_df,symbol)
 
-        # -----------------------------------
-        # SAVE FILE
-        # -----------------------------------
+        
+        # SAVE TO DB
+        
 
         if not main_df.empty:
 
             file_symbol = symbol.replace(":","_").replace("-","_")
-
             file_name = f"{file_symbol}_1MIN.xlsx"
 
-            main_df.to_excel(file_name,index=False,engine="openpyxl")
+            # Save to memory
+            output = io.BytesIO()
+            main_df.to_excel(output, index=False, engine="openpyxl")
+            output.seek(0)
 
-            wb = load_workbook(file_name)
-
+            # Highlight EOD
+            wb = load_workbook(output)
             ws = wb.active
 
             highlight = PatternFill(
@@ -336,29 +303,35 @@ def download_1min_data(client_id):
 
             time_frame_col = None
 
-            for col in range(1,ws.max_column+1):
-
-                if ws.cell(row=1,column=col).value == "TIME_FRAME":
-
+            for col in range(1, ws.max_column + 1):
+                if ws.cell(row=1, column=col).value == "TIME_FRAME":
                     time_frame_col = col
                     break
 
             if time_frame_col:
-
-                for row in ws.iter_rows(min_row=2,max_row=ws.max_row):
-
-                    if str(row[time_frame_col-1].value).strip() == "EOD":
-
+                for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
+                    if str(row[time_frame_col - 1].value).strip() == "EOD":
                         for cell in row:
                             cell.fill = highlight
 
-            wb.save(file_name)
+            final_buffer = io.BytesIO()
+            wb.save(final_buffer)
             wb.close()
+            final_buffer.seek(0)
 
-            print("Saved:",file_name)
+            # Store in DB
+            OneMinDataFile.objects.update_or_create(
+                symbol=symbol,
+                file_name=file_name,
+                defaults={
+                    "file_data": final_buffer.getvalue(),
+                    "is_deleted": False
+                }
+            )
+
+            print("Saved to DB:",file_name)
 
         else:
-
             print("SKIPPED:",symbol)
 
         time.sleep(1)

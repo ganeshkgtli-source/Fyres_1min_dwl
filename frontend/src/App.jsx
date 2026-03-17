@@ -7,9 +7,10 @@ import Home from "./pages/Home";
 import Files from "./pages/Files";
 import Trash from "./pages/Trash";
 import Logs from "./pages/Logs";
-import LogsAll from "./pages/LogsAll";
+ 
 import LogDashboard from "./pages/LogDashboard";
 import Matrix from "./pages/Matrix";
+import OneMinData from "./pages/OneMinData";
 
 function App(){
 
@@ -27,11 +28,11 @@ return(
 <Route path="/trash" element={<Trash/>}/>
 
 <Route path="/logs" element={<Logs/>}/>
-<Route path="/logs-all" element={<LogsAll/>}/>
+ 
 <Route path="/log-dashboard" element={<LogDashboard/>}/>
 
 <Route path="/matrix" element={<Matrix/>}/>
-
+<Route path="/1min-data" element={<OneMinData />} /> 
 </Routes>
 
 </BrowserRouter>

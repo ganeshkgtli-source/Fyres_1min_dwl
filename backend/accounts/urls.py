@@ -21,6 +21,8 @@ urlpatterns = [
  
     path("download-bse/", views.download_bse_file),
     path("download-1min/", views.download_1min_history),
+      
+    # path("stream-download/", views.stream_download_logs),
     path("download-day/", views.download_day),
     path("download-year/", views.download_year),
     path("download-all/", views.download_all),
@@ -51,4 +53,13 @@ urlpatterns = [
     
     path("stream-logs/<int:year>/", views.stream_logs),
     path("stream-all-logs/", views.stream_all_logs),
+    path("stream-1min/", views.stream_1min_logs),
+    path("1min-files/", views.get_1min_files),
+path("1min-download-selected/", views.download_1min_selected),
+ path("trash/", views.get_trash),
+    path("restore/", views.restore_trash),
+    path("delete-permanent/", views.delete_trash_permanent),
+     path("1min-move-to-trash/", views.one_min_move_to_trash),
+
+     
 ]

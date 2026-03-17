@@ -23,9 +23,7 @@ function Home() {
     }
 
     const checkToken = async () => {
-
       try {
-
         const res = await API.get(`/check-token/${clientId}/`);
 
         if (!res.data.token_exists) {
@@ -33,86 +31,54 @@ function Home() {
         }
 
       } catch {
-
         navigate("/login");
-
       }
-
     };
 
     checkToken();
 
   }, [clientId, navigate]);
 
-
-  /* GENERATE FYERS TOKEN */
-
+  // ================= TOKEN =================
   const generateToken = () => {
-
     window.location.href =
       `http://127.0.0.1:8000/api/fyers-login/${clientId}/`;
-
   };
 
-
-  /* LOGOUT */
-
+  // ================= LOGOUT =================
   const logout = () => {
-
     localStorage.removeItem("client_id");
     navigate("/login");
-
   };
 
-
-  /* DOWNLOAD BSE SYMBOLS */
-
+  // ================= DOWNLOAD BSE =================
   const downloadBSE = async () => {
-
     try {
-
       setLoading(true);
-
       const res = await API.get("/download-bse/");
-
       alert(res.data.message);
-
     } catch {
-
       alert("Download failed");
-
     }
-
     setLoading(false);
-
   };
 
-
-  /* DOWNLOAD 1 MIN DATA */
-
+  // ================= DOWNLOAD 1 MIN =================
   const download1Min = async () => {
-
     try {
-
       setLoading(true);
+      await API.get(`/download-1min/?client_id=${clientId}`);
 
-      const res = await API.get(`/download-1min/?client_id=${clientId}`);
-
-      alert(res.data.message);
+      // ✅ redirect to logs
+      // navigate("/logs");
 
     } catch {
-
       alert("Download failed");
-
     }
-
     setLoading(false);
-
   };
 
-
-  /* DOWNLOAD DAY */
-
+  // ================= DAY =================
   const downloadDay = async () => {
 
     if (!date) {
@@ -121,7 +87,6 @@ function Home() {
     }
 
     try {
-
       setLoading(true);
 
       const res = await API.post("/download-day/", {
@@ -131,82 +96,61 @@ function Home() {
       alert(res.data.message);
 
     } catch {
-
       alert("Download failed");
-
     }
 
     setLoading(false);
-
   };
 
+  // ================= YEAR =================
+  const downloadYear = () => {
 
-  /* DOWNLOAD YEAR */
+    if (!year) {
+      alert("Enter year");
+      return;
+    }
 
- const downloadYear = () => {
+    navigate(`/logs?year=${year}`);
+  };
 
-  if (!year) {
-    alert("Enter year");
-    return;
-  }
-
-  navigate(`/logs?year=${year}`);
-
-};
-
-
-  /* DOWNLOAD ALL */
-
-const downloadAll = () => {
-
-  navigate(`/logs?all=true`);
-
-};
-
+  // ================= ALL =================
+  const downloadAll = () => {
+    navigate(`/logs?all=true`);
+  };
 
   return (
 
     <div className="dashboard">
 
       {/* SIDEBAR */}
-
       <div className="sidebar">
 
         <h2 className="logo">TLI</h2>
 
         <ul>
-
           <li onClick={() => navigate("/")}>Dashboard</li>
           <li onClick={() => navigate("/files")}>Files</li>
+          <li onClick={() => navigate("/1min-data")}>1 Min Data</li> {/* ✅ ADDED */}
           <li onClick={() => navigate("/matrix")}>Matrix</li>
           <li onClick={() => navigate("/trash")}>Trash</li>
-
         </ul>
 
       </div>
 
-
       {/* MAIN */}
-
       <div className="main">
 
         {/* TOPBAR */}
-
         <div className="topbar">
-
           <h2>Timeline Investments</h2>
 
           <button onClick={logout} className="logout-btn">
             Logout
           </button>
-
         </div>
 
-
-        {/* INFO CARDS */}
-
+        {/* CARDS */}
         <div className="cards">
-
           <div className="card">
             <h3>Status</h3>
             <p>Active</p>
@@ -221,31 +165,20 @@ const downloadAll = () => {
             <h3>Session</h3>
             <p>Live</p>
           </div>
-
         </div>
 
-
-        {/* FYERS DATA */}
-
+        {/* FYERS */}
         <div className="section">
 
           <h3>Fyers Data</h3>
 
           <div className="btn-group">
 
-            <button
-              className="btn"
-              onClick={downloadBSE}
-              disabled={loading}
-            >
+            <button className="btn" onClick={downloadBSE} disabled={loading}>
               Download BSE Symbols
             </button>
 
-            <button
-              className="btn"
-              onClick={download1Min}
-              disabled={loading}
-            >
+            <button className="btn" onClick={download1Min} disabled={loading}>
               Download 1 Minute Data
             </button>
 
@@ -253,9 +186,7 @@ const downloadAll = () => {
 
         </div>
 
-
-        {/* DAY DOWNLOAD */}
-
+        {/* DAY */}
         <div className="section">
 
           <h3>BSE Day Downloader</h3>
@@ -268,11 +199,7 @@ const downloadAll = () => {
               onChange={(e) => setDate(e.target.value)}
             />
 
-            <button
-              className="btn"
-              onClick={downloadDay}
-              disabled={loading}
-            >
+            <button className="btn" onClick={downloadDay} disabled={loading}>
               Download Day
             </button>
 
@@ -280,9 +207,7 @@ const downloadAll = () => {
 
         </div>
 
-
-        {/* YEAR DOWNLOAD */}
-
+        {/* YEAR */}
         <div className="section">
 
           <h3>BSE Year Downloader</h3>
@@ -296,11 +221,7 @@ const downloadAll = () => {
               onChange={(e) => setYear(e.target.value)}
             />
 
-            <button
-              className="btn"
-              onClick={downloadYear}
-              disabled={loading}
-            >
+            <button className="btn" onClick={downloadYear} disabled={loading}>
               Start Download
             </button>
 
@@ -308,18 +229,12 @@ const downloadAll = () => {
 
         </div>
 
-
-        {/* DOWNLOAD ALL */}
-
+        {/* ALL */}
         <div className="section">
 
           <h3>Download All Data</h3>
 
-          <button
-            className="btn"
-            onClick={downloadAll}
-            disabled={loading}
-          >
+          <button className="btn" onClick={downloadAll} disabled={loading}>
             Download All Data Till Today
           </button>
 
@@ -327,33 +242,21 @@ const downloadAll = () => {
 
       </div>
 
-
-      {/* TOKEN POPUP */}
-
+      {/* POPUP */}
       {showPopup && (
-
         <div className="popup-overlay">
-
           <div className="popup">
-
             <h3>Generate Fyers Token</h3>
-
             <p>Token required for today session</p>
-
             <button onClick={generateToken}>
               Generate Token
             </button>
-
           </div>
-
         </div>
-
       )}
 
     </div>
-
   );
-
 }
 
 export default Home;

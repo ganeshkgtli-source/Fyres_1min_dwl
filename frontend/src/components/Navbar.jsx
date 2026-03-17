@@ -29,10 +29,12 @@ return(
 <button onClick={()=>navigate("/")}>Home</button>
 
 <button onClick={()=>navigate("/files")}>Files</button>
+<button onClick={() => navigate("/1min-data")}>1 Min Data</button>
 
 <button onClick={()=>navigate("/trash")}>Trash</button>
 
 <button onClick={()=>navigate("/log-dashboard")}>History</button>
+
 
 </div>
 

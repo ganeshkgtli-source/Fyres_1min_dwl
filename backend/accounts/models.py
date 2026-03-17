@@ -125,7 +125,22 @@ class DownloadLog(models.Model):
     def __str__(self):
         return self.file_name
 
+from django.db import models
 
+class OneMinDataFile(models.Model):
+
+    symbol = models.CharField(max_length=100)
+    file_name = models.CharField(max_length=255)
+
+    file_data = models.BinaryField()  # stores CSV file
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    is_deleted = models.BooleanField(default=False)
+
+    def __str__(self):
+        return self.file_name
+    
 class GeneratedFile(models.Model):
 
     file_name = models.CharField(max_length=200)

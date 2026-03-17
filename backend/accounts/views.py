@@ -14,15 +14,20 @@ import json
 from django.views.decorators.csrf import csrf_exempt
 from .models import User, AccessToken, BhavcopyFile, DownloadLog
 from .serializers import LoginSerializer, RegisterSerializer
-
+from threading import Thread
+import time
+from django.http import JsonResponse, StreamingHttpResponse
 from .utils.fyers_auth import generate_fyers_token
+from threading import Thread
+import time
+from django.http import JsonResponse, StreamingHttpResponse
 
 from accounts.services.symbol_service import (
     download_bse_symbols,
     get_filtered_symbols
 )
 
-from accounts.services.history_service import download_1min_data
+from accounts.services.history_service import  download_1min_data
 
 from accounts.services.bhavcopy_service import (
     download_bhavcopy,
@@ -40,6 +45,7 @@ from accounts.services.matrix_service import (
 import datetime
 from django.http import StreamingHttpResponse
 from django.views.decorators.csrf import csrf_exempt
+from accounts.models import OneMinDataFile
 
 DOWNLOAD_STATE = {}
 
@@ -226,26 +232,47 @@ def download_bse_file(request):
 # 1 MIN DATA DOWNLOAD
 # =========================
 
+ 
+
+
+# =============================
+# START DOWNLOAD
+# =============================
 def download_1min_history(request):
 
     try:
-
         client_id = request.GET.get("client_id")
 
-        download_1min_data(client_id)
+        Thread(target=download_1min_data, args=(client_id,)).start()
 
         return JsonResponse({
-            "status":"success",
-            "message":"1 minute data downloaded"
+            "status": "success",
+            "message": "Download started"
         })
 
     except Exception as e:
-
         return JsonResponse({
-            "status":"error",
-            "message":str(e)
+            "status": "error",
+            "message": str(e)
         })
 
+
+# =============================
+# STREAM LOGS (SSE)
+# =============================
+
+def stream_1min_logs(request):
+
+    client_id = request.GET.get("client_id")
+
+    def event_stream():
+        for log in download_1min_data(client_id):
+            yield f"data: {log}\n\n"
+
+    return StreamingHttpResponse(
+        event_stream(),
+        content_type="text/event-stream"
+    )
 
 # =========================
 # BHAVCOPY DOWNLOAD
@@ -630,5 +657,156 @@ def stream_all_logs(request):
         content_type="text/event-stream"
     )
 
+from accounts.models import OneMinDataFile
 
 
+@api_view(["GET"])
+def list_files(request):
+
+    files = OneMinDataFile.objects.filter(is_deleted=False).order_by("-created_at")
+
+    data = []
+
+    for f in files:
+        data.append({
+            "id": f.id,
+            "symbol": f.symbol,
+            "file_name": f.file_name,
+            "created_at": f.created_at
+        })
+
+    return Response(data)
+
+
+
+
+
+@api_view(["GET"])
+def get_1min_files(request):
+
+    symbol = request.GET.get("symbol")
+
+    qs = OneMinDataFile.objects.filter(is_deleted=False)
+
+    if symbol:
+        qs = qs.filter(symbol=symbol)
+
+    symbols = qs.values_list("symbol", flat=True).distinct()
+
+    data = [
+        {
+            "id": f.id,
+            "symbol": f.symbol,
+            "file_name": f.file_name,
+            "created_at": f.created_at.strftime("%d-%m-%Y %H:%M:%S")
+        }
+        for f in qs
+    ]
+
+    return Response({
+        "files": data,
+        "symbols": list(symbols)
+    })
+
+@api_view(["POST"])
+def download_1min_selected(request):
+
+    ids = request.data.get("ids", [])
+
+    buffer = io.BytesIO()
+
+    with zipfile.ZipFile(buffer, "w") as z:
+
+        files = OneMinDataFile.objects.filter(id__in=ids)
+
+        for f in files:
+            z.writestr(f.file_name, f.file_data)
+
+    buffer.seek(0)
+
+    return HttpResponse(
+        buffer,
+        content_type="application/zip",
+        headers={"Content-Disposition": "attachment; filename=OneMin.zip"}
+    )
+@api_view(["POST"])
+def move_1min_to_trash(request):
+
+    ids = request.data.get("ids", [])
+
+    OneMinDataFile.objects.filter(id__in=ids).update(is_deleted=True)
+
+    return Response({"status":"ok"})
+
+@api_view(["GET"])
+def get_trash(request):
+    # Fetch deleted OneMinDataFile
+    one_min_files = OneMinDataFile.objects.filter(is_deleted=True)
+    bhav_files = BhavcopyFile.objects.filter(is_deleted=True)
+
+    # Combine both
+    files = []
+
+    for f in one_min_files:
+        files.append({
+            "id": f"id_om_{f.id}",      # unique ID prefix for frontend
+            "file_name": f.file_name,
+            "trade_date": f.created_at.strftime("%Y-%m-%d"),
+            "year": f.created_at.year,
+            "month": f.created_at.strftime("%b").upper(),
+            "type": "1MIN"
+        })
+
+    for f in bhav_files:
+        files.append({
+            "id": f"id_bh_{f.id}",      # unique ID prefix for frontend
+            "file_name": f.file_name,
+            "trade_date": f.trade_date.strftime("%Y-%m-%d"),
+            "year": f.year,
+            "month": f.month.upper(),
+            "type": "BHAVCOPY"
+        })
+
+    # Unique years and months
+    years = sorted(list({f["year"] for f in files}), reverse=True)
+    months = sorted(list({f["month"] for f in files}))
+
+    return Response({
+        "files": files,
+        "years": years,
+        "months": months
+    })
+@api_view(["POST"])
+def restore_trash(request):
+    ids = request.data.get("ids", [])
+
+    # Separate IDs by type
+    one_min_ids = [int(i.replace("id_om_","")) for i in ids if i.startswith("id_om_")]
+    bhav_ids = [int(i.replace("id_bh_","")) for i in ids if i.startswith("id_bh_")]
+
+    OneMinDataFile.objects.filter(id__in=one_min_ids).update(is_deleted=False)
+    BhavcopyFile.objects.filter(id__in=bhav_ids).update(is_deleted=False)
+
+    return Response({"status": "restored"})
+@api_view(["POST"])
+def delete_trash_permanent(request):
+    ids = request.data.get("ids", [])
+
+    one_min_ids = [int(i.replace("id_om_","")) for i in ids if i.startswith("id_om_")]
+    bhav_ids = [int(i.replace("id_bh_","")) for i in ids if i.startswith("id_bh_")]
+
+    OneMinDataFile.objects.filter(id__in=one_min_ids).delete()
+    BhavcopyFile.objects.filter(id__in=bhav_ids).delete()
+
+    return Response({"status": "deleted"})
+
+@api_view(["POST"])
+def one_min_move_to_trash(request):
+    ids = request.data.get("ids", [])
+    if not ids:
+        return Response({"error": "No files selected"}, status=400)
+
+    files = OneMinDataFile.objects.filter(id__in=ids)
+    updated_count = files.update(is_deleted=True)
+
+    return Response({"success": f"{updated_count} files moved to trash"})
