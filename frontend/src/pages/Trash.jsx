@@ -16,133 +16,96 @@ const [month,setMonth] = useState("")
 
 
 useEffect(()=>{
-
 fetchTrash()
-
 },[])
-
 
 
 // FETCH TRASH FILES
 const fetchTrash = async()=>{
-
 try{
-
 const res = await API.get("/trash/")
 
 setFiles(res.data.files || [])
 setYears(res.data.years || [])
 setMonths(res.data.months || [])
 
+}catch(err){
+console.error(err)
 }
-
-catch(err){
-
-console.error("Trash fetch error",err)
-
 }
-
-}
-
 
 
 // APPLY FILTER
 const applyFilter = async()=>{
-
 try{
-
 const res = await API.get(`/trash/?year=${year}&month=${month}`)
 
 setFiles(res.data.files || [])
+setYears(res.data.years || [])
+setMonths(res.data.months || [])
 
+}catch(err){
+console.error(err)
 }
-
-catch(err){
-
-console.error("Filter error",err)
-
 }
-
-}
-
 
 
 // RESET FILTER
 const resetFilter = ()=>{
-
 setYear("")
 setMonth("")
-
 fetchTrash()
-
 }
 
 
-
-// TOGGLE FILE
+// TOGGLE
 const toggle=(id)=>{
-
 if(selected.includes(id)){
-
 setSelected(selected.filter(x=>x!==id))
-
 }else{
-
 setSelected([...selected,id])
-
 }
-
 }
-
 
 
 // SELECT ALL
 const selectAll=()=>{
-
 setSelected(files.map(f=>f.id))
-
 }
-
 
 
 // UNSELECT
 const unselectAll=()=>{
-
 setSelected([])
-
 }
 
 
-
-// PERMANENT DELETE
-const deleteFiles = async()=>{
-
-if(selected.length===0){
-
-alert("Select files first")
-return
-
-}
-
+// ♻ RESTORE
+const restoreFiles = async()=>{
 try{
+await API.post("/restore/", { ids: selected })
 
-await API.post("/delete-permanent/",{ids:selected})
-
-alert("Files deleted permanently")
-
-fetchTrash()
+setFiles(prev => prev.filter(f => !selected.includes(f.id)))
 setSelected([])
 
-}
-
-catch(err){
-
+}catch(err){
 console.error(err)
-
+}
 }
 
-}
 
+// 🔴 DELETE PERMANENT
+const handleDelete = async()=>{
+try{
+await API.post("/delete-permanent/", { ids: selected })
+
+setFiles(prev => prev.filter(f => !selected.includes(f.id)))
+setSelected([])
+
+}catch(err){
+console.error(err)
+}
+}
 
 
 return(
@@ -153,12 +116,9 @@ return(
 
 <div className="files-container">
 
-<h2 className="page-title">Trash</h2>
-
 
 
 {/* ACTION BAR */}
-
 <div className="action-bar">
 
 <button className="btn select" onClick={selectAll}>
@@ -169,135 +129,89 @@ Select All
 Unselect
 </button>
 
-<button className="btn delete" onClick={deleteFiles}>
+<button className="btn filter" onClick={restoreFiles}>
+Restore
+</button>
+
+<button className="btn delete" onClick={handleDelete}>
 Delete Permanently
 </button>
 
 
-
 {/* FILTERS */}
-
 <div className="filters">
 
-<select
-value={year}
-onChange={(e)=>setYear(e.target.value)}
->
-
+<select value={year} onChange={e=>setYear(e.target.value)}>
 <option value="">Year</option>
 
-{years?.map(y=>(
-
-<option key={y}>{y}</option>
-
+{years.map(y=>(
+<option key={y} value={y}>{y}</option>
 ))}
 
 </select>
 
 
-
-<select
-value={month}
-onChange={(e)=>setMonth(e.target.value)}
->
-
+<select value={month} onChange={e=>setMonth(e.target.value)}>
 <option value="">Month</option>
 
-{months?.map(m=>(
-
-<option key={m}>{m}</option>
-
+{months.map(m=>(
+<option key={m} value={m}>{m}</option>
 ))}
 
 </select>
 
 
-
-<button
-className="btn filter"
-onClick={applyFilter}
->
-
+<button className="btn filter" onClick={applyFilter}>
 Filter
-
 </button>
 
-
-
-<button
-className="btn reset"
-onClick={resetFilter}
->
-
+<button className="btn reset" onClick={resetFilter}>
 Reset
-
 </button>
 
 </div>
 
 </div>
-
 
 
 {/* TABLE */}
-
 <div className="table-container">
 
 <table>
 
 <thead>
-
 <tr>
-
 <th></th>
 <th>File Name</th>
-<th>Trade Date</th>
+<th>Date</th>
 <th>Year</th>
 <th>Month</th>
-
 </tr>
-
 </thead>
 
 <tbody>
 
 {files.length === 0 ? (
-
 <tr>
-
-<td colSpan="5" style={{textAlign:"center"}}>
-
-No files in trash
-
-</td>
-
+<td colSpan="5">No files in trash</td>
 </tr>
-
 ) : (
-
 files.map(file=>(
-
 <tr key={file.id}>
-
 <td>
-
 <input
 type="checkbox"
 checked={selected.includes(file.id)}
 onChange={()=>toggle(file.id)}
 />
-
 </td>
 
 <td>{file.file_name}</td>
 <td>{file.trade_date}</td>
 <td>{file.year}</td>
 <td>{file.month}</td>
-
 </tr>
-
 ))
-
 )}
 
 </tbody>

@@ -1,47 +1,26 @@
-import { useEffect, useState } from "react";
-import API from "../api/api";
-import Navbar from "../components/Navbar";
-import "../styles//files.css";
+import { useEffect, useState } from "react"
+import API from "../api/api"
+import Navbar from "../components/Navbar"
+import "../styles/files.css"
 
 function LogDashboard(){
 
-const [logs,setLogs] = useState([]);
-const [year,setYear] = useState("");
-const [month,setMonth] = useState("");
+const [logs,setLogs] = useState([])
 
 useEffect(()=>{
-
-fetchLogs();
-
-},[]);
+fetchLogs()
+},[])
 
 
+// FETCH LOGS
 const fetchLogs = async()=>{
-
-const res = await API.get("/logs/");
-
-setLogs(res.data);
-
-};
-
-
-const applyFilter = async()=>{
-
-const res = await API.get(`/logs/?year=${year}&month=${month}`);
-
-setLogs(res.data);
-
-};
-
-
-const resetFilter = ()=>{
-
-setYear("");
-setMonth("");
-
-fetchLogs();
-
-};
+try{
+const res = await API.get("/logs/")
+setLogs(res.data || [])
+}catch(err){
+console.error(err)
+}
+}
 
 
 return(
@@ -55,76 +34,44 @@ return(
 <h2 className="page-title">Download Logs</h2>
 
 
-<div className="filters">
-
-<select value={year} onChange={e=>setYear(e.target.value)}>
-<option value="">Year</option>
-<option>2025</option>
-<option>2024</option>
-<option>2023</option>
-</select>
-
-<select value={month} onChange={e=>setMonth(e.target.value)}>
-<option value="">Month</option>
-<option>01</option>
-<option>02</option>
-<option>03</option>
-<option>04</option>
-<option>05</option>
-<option>06</option>
-<option>07</option>
-<option>08</option>
-<option>09</option>
-<option>10</option>
-<option>11</option>
-<option>12</option>
-</select>
-
-<button className="btn filter" onClick={applyFilter}>Filter</button>
-
-<button className="btn reset" onClick={resetFilter}>Reset</button>
-
-</div>
-
-
 <div className="table-container">
 
 <table>
 
 <thead>
-
 <tr>
 <th>File</th>
 <th>Date</th>
 <th>Status</th>
 <th>Time</th>
 </tr>
-
 </thead>
 
 <tbody>
 
-{logs.map((log,i)=>{
+{logs.length === 0 ? (
+<tr>
+<td colSpan="4">No logs found</td>
+</tr>
+) : (
+logs.map((log,i)=>{
 
 const rowClass =
-log.status === "SUCCESS"
+log.status === "active"
 ? "log-success"
-: "log-failed";
+: "log-deleted"
 
 return(
-
 <tr key={i} className={rowClass}>
-
-<td>{log.file}</td>
-<td>{log.date}</td>
+<td>{log.file_name}</td>
+<td>{log.trade_date}</td>
 <td>{log.status}</td>
-<td>{log.time}</td>
-
+<td>{log.download_time}</td>
 </tr>
+)
 
-);
-
-})}
+})
+)}
 
 </tbody>
 
@@ -136,8 +83,8 @@ return(
 
 </div>
 
-);
+)
 
 }
 
-export default LogDashboard;
+export default LogDashboard

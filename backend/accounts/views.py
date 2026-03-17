@@ -284,71 +284,79 @@ def download_all(request):
 
 @api_view(["POST"])
 def download_selected(request):
-
-    ids = request.data.get("file_ids", [])
-
-    if not ids:
-        return Response({"error": "No files selected"}, status=400)
+    ids = request.data.get("ids", [])
 
     zip_buffer = io.BytesIO()
 
-    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as z:
-
+    with zipfile.ZipFile(zip_buffer, "w") as z:
         files = BhavcopyFile.objects.filter(id__in=ids)
 
-        for file in files:
-
-            zip_path = f"Bhavcopy/{file.year}/{file.month}/{file.file_name}"
-
-            z.writestr(zip_path, file.file_data)
+        for f in files:
+            z.writestr(
+                f"Bhavcopy/{f.year}/{f.month}/{f.file_name}",
+                f.file_data
+            )
 
     zip_buffer.seek(0)
 
-    response = HttpResponse(
-        zip_buffer,
-        content_type="application/zip"
-    )
-
-    response["Content-Disposition"] = 'attachment; filename="Bhavcopy_Files.zip"'
+    response = HttpResponse(zip_buffer.getvalue(), content_type="application/zip")
+    response["Content-Disposition"] = 'attachment; filename="Bhavcopy.zip"'
 
     return response
 
 
 @api_view(["POST"])
-def delete_selected(request):
-
-    ids = request.data.get("file_ids", [])
-
-    files = BhavcopyFile.objects.filter(id__in=ids)
-
-    count = files.count()
-
-    for f in files:
-        DownloadLog.objects.filter(file_name=f.file_name).delete()
-
-    files.delete()
-
-    return Response({"message": f"{count} files deleted"})
-
-
-@api_view(["POST"])
-def delete_temp(request):
-
-    ids = request.data.get("file_ids", [])
+def move_to_trash(request):
+    ids = request.data.get("ids", [])
 
     files = BhavcopyFile.objects.filter(id__in=ids)
 
     files.update(is_deleted=True)
 
-    return Response({"message": "Moved to Trash"})
+    DownloadLog.objects.filter(
+        file_name__in=files.values_list("file_name", flat=True)
+    ).update(status="deleted")
+
+    return Response({"message": "Moved to trash"})
 
 
-@api_view(["GET"])
-def view_trash(request):
+@api_view(["POST"])
+def restore_files(request):
+    ids = request.data.get("ids", [])
 
-    files = BhavcopyFile.objects.filter(is_deleted=True).values()
+    files = BhavcopyFile.objects.filter(id__in=ids)
 
-    return Response(list(files))
+    files.update(is_deleted=False)
+
+    DownloadLog.objects.filter(
+        file_name__in=files.values_list("file_name", flat=True)
+    ).update(status="active")
+
+    return Response({"message": "Restored"})
+
+
+@api_view(["POST"])
+def permanent_delete(request):
+    ids = request.data.get("ids", [])
+
+    files = BhavcopyFile.objects.filter(id__in=ids, is_deleted=True)
+
+    file_names = list(files.values_list("file_name", flat=True))
+
+    DownloadLog.objects.filter(file_name__in=file_names).delete()
+
+    files.delete()
+
+    return Response({"deleted_ids": ids})
+
+
+# =========================
+# VIEW FILES
+# =========================
+
+from rest_framework.decorators import api_view
+from rest_framework.response import Response
+from .models import BhavcopyFile
 
 
 @api_view(["GET"])
@@ -357,15 +365,99 @@ def view_files(request):
     year = request.GET.get("year")
     month = request.GET.get("month")
 
+    # BASE QUERY (ONLY ACTIVE FILES)
     files = BhavcopyFile.objects.filter(is_deleted=False)
 
+    # APPLY FILTERS
     if year:
         files = files.filter(year=year)
 
     if month:
         files = files.filter(month=month)
 
-    return Response(list(files.values()))
+    # ORDER FILES (LATEST FIRST)
+    files = files.order_by("-trade_date")
+
+    # ✅ DISTINCT YEARS (ONLY FROM ACTIVE FILES)
+    years = (
+        BhavcopyFile.objects
+        .filter(is_deleted=False)
+        .values_list("year", flat=True)
+        .distinct()
+        .order_by("year")
+    )
+
+    # ✅ DISTINCT MONTHS (ONLY FROM ACTIVE FILES)
+    months = (
+        BhavcopyFile.objects
+        .filter(is_deleted=False)
+        .values_list("month", flat=True)
+        .distinct()
+        .order_by("month")
+    )
+
+    return Response({
+        "files": [
+            {
+                "id": f.id,
+                "file_name": f.file_name,
+                "trade_date": f.trade_date,
+                "year": f.year,
+                "month": f.month
+            }
+            for f in files
+        ],
+
+        # ✅ CONVERT QUERYSET → LIST
+        "years": list(years),
+        "months": list(months)
+    })
+
+@api_view(["GET"])
+def view_trash(request):
+
+    year = request.GET.get("year")
+    month = request.GET.get("month")
+
+    files = BhavcopyFile.objects.filter(is_deleted=True)
+
+    # APPLY FILTER
+    if year:
+        files = files.filter(year=year)
+
+    if month:
+        files = files.filter(month=month)
+
+    # ✅ DISTINCT VALUES FOR FILTER DROPDOWN
+    years = (
+        BhavcopyFile.objects
+        .filter(is_deleted=True)
+        .values_list("year", flat=True)
+        .distinct()
+        .order_by("year")
+    )
+
+    months = (
+        BhavcopyFile.objects
+        .filter(is_deleted=True)
+        .values_list("month", flat=True)
+        .distinct()
+        .order_by("month")
+    )
+
+    return Response({
+        "files": [
+            {
+                "id": f.id,
+                "file_name": f.file_name,
+                "trade_date": f.trade_date,
+                "year": f.year,
+                "month": f.month
+            } for f in files
+        ],
+        "years": list(years),   # ✅ CLEAN LIST
+        "months": list(months)  # ✅ CLEAN LIST
+    })
 
 
 # =========================
@@ -374,42 +466,25 @@ def view_files(request):
 
 @api_view(["GET"])
 def generate_matrix(request):
-
-    result = create_presence_matrix_from_db()
-
-    return Response({"status": result})
+    return Response({"status": create_presence_matrix_from_db()})
 
 
 def download_matrix(request):
-
     row = get_latest_matrix()
 
     if not row:
-        return HttpResponse("No file available")
+        return HttpResponse("No file")
 
-    file_name, file_data = row
+    name, data = row
 
-    response = HttpResponse(
-        file_data,
-        content_type="text/csv"
-    )
-
-    response["Content-Disposition"] = f'attachment; filename="{file_name}"'
-
-    return response
+    res = HttpResponse(data, content_type="text/csv")
+    res["Content-Disposition"] = f'attachment; filename="{name}"'
+    return res
 
 
 def matrix_file(request):
-
     row = get_latest_matrix_data()
-
-    if not row:
-        return HttpResponse("No file found")
-
-    return HttpResponse(
-        row[0],
-        content_type="text/csv"
-    )
+    return HttpResponse(row[0], content_type="text/csv")
 
 
 # =========================
@@ -418,101 +493,14 @@ def matrix_file(request):
 
 @api_view(["GET"])
 def log_dashboard(request):
+    logs = DownloadLog.objects.all().order_by("-download_time")
 
-    logs = DownloadLog.objects.all().order_by("-trade_date")
-
-    return Response(list(logs.values()))
-
-
-def view_files(request):
-
-    year = request.GET.get("year")
-    month = request.GET.get("month")
-
-    files = BhavcopyFile.objects.filter(is_deleted=False)
-
-    if year:
-        files = files.filter(year=year)
-
-    if month:
-        files = files.filter(month=month)
-
-    files = files.order_by("-trade_date")
-
-    data = [
+    return Response([
         {
-            "id": f.id,
-            "file_name": f.file_name,
-            "trade_date": f.trade_date,
-            "year": f.year,
-            "month": f.month
+            "file_name": l.file_name,
+            "trade_date": l.trade_date,
+            "status": l.status,
+            "download_time": l.download_time
         }
-        for f in files
-    ]
-
-    years = BhavcopyFile.objects.values_list(
-        "year", flat=True
-    ).distinct().order_by("-year")
-
-    months = BhavcopyFile.objects.values_list(
-        "month", flat=True
-    ).distinct().order_by("month")
-
-    return JsonResponse({
-        "files": data,
-        "years": list(years),
-        "months": list(months)
-    })
-
-def view_trash(request):
-
-    year = request.GET.get("year")
-    month = request.GET.get("month")
-
-    files = BhavcopyFile.objects.filter(is_deleted=True)
-
-    if year:
-        files = files.filter(year=year)
-
-    if month:
-        files = files.filter(month=month)
-
-    files = files.order_by("-trade_date")
-
-    data = [
-        {
-            "id": f.id,
-            "file_name": f.file_name,
-            "trade_date": f.trade_date,
-            "year": f.year,
-            "month": f.month
-        }
-        for f in files
-    ]
-
-    return JsonResponse({"files": data})
-
-
-@csrf_exempt
-def delete_selected(request):
-
-    if request.method == "POST":
-
-        body = json.loads(request.body)
-        ids = body.get("ids", [])
-
-        BhavcopyFile.objects.filter(id__in=ids).update(is_deleted=True)
-
-        return JsonResponse({"message": "Moved to trash"})
-
-@csrf_exempt
-def delete_permanent(request):
-
-    if request.method == "POST":
-
-        body = json.loads(request.body)
-        ids = body.get("ids", [])
-
-        BhavcopyFile.objects.filter(id__in=ids).delete()
-
-        return JsonResponse({"message": "Deleted permanently"})
+        for l in logs
+    ])

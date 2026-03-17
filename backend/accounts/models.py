@@ -115,7 +115,10 @@ class DownloadLog(models.Model):
 
     week_day = models.CharField(max_length=20)
 
-    status = models.CharField(max_length=20)
+    status = models.CharField(
+        max_length=20,
+        default="active"   # active / deleted
+    )
 
     download_time = models.DateTimeField(auto_now=True)
 
