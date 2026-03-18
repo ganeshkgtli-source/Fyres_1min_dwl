@@ -1,47 +1,70 @@
 import { useState } from "react"
 import Navbar from "../components/Navbar"
+import "../styles/files.css"
 
 function Matrix(){
 
-const [loaded,setLoaded] = useState(false)
+  const [loaded, setLoaded] = useState(false)
+  const [generating, setGenerating] = useState(false)
 
-return(
+  // 🔥 Generate Matrix API
+  const generateMatrix = async () => {
+    try {
+      setGenerating(true)
 
-<div>
+      await fetch("http://127.0.0.1:8000/api/generate-matrix/")
 
-<Navbar/>
+      alert("Matrix generated successfully")
 
-<div className="topbar">
+      // reload iframe
+      setLoaded(false)
 
-<h2>Security Presence Matrix</h2>
+    } catch (err) {
+      alert("Error generating matrix")
+    } finally {
+      setGenerating(false)
+    }
+  }
 
-<button onClick={()=>window.location="http://127.0.0.1:8000/api/download-matrix"}>
-Download CSV
-</button>
+  return(
 
-</div>
+    <div>
 
-{!loaded &&
+      <Navbar/>
 
-<div id="loader">
+      <div className="topbar">
 
-<div className="spinner"></div>
-<br/>
-Loading Matrix...
+        <h2>Security Presence Matrix</h2>
 
-</div>
+        {/* 🔥 GENERATE BUTTON */}
+        <button onClick={generateMatrix} disabled={generating}>
+          {generating ? "Generating..." : "Generate Matrix"}
+        </button>
 
-}
+        {/* 🔥 DOWNLOAD BUTTON */}
+        <button onClick={() => window.location = "http://127.0.0.1:8000/api/download-matrix/"}>
+          Download CSV
+        </button>
 
-<iframe
-src="http://127.0.0.1:8000/api/view-matrix"
-style={{width:"100%",height:"88vh",border:"none"}}
-onLoad={()=>setLoaded(true)}
-/>
+      </div>
 
-</div>
+      {!loaded &&
+        <div id="loader">
+          <div className="spinner"></div>
+          <br/>
+          Loading Matrix...
+        </div>
+      }
 
-)
+      <iframe
+        src="http://127.0.0.1:8000/api/view-matrix/"
+        style={{width:"100%", height:"88vh", border:"none"}}
+        onLoad={() => setLoaded(true)}
+      />
+
+    </div>
+
+  )
 
 }
 

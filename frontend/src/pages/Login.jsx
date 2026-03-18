@@ -1,7 +1,7 @@
 import { useState } from "react";
 import API from "../api/api";
 import { useNavigate, Link } from "react-router-dom";
-// import "./auth.css";
+import "../styles/files.css"
 
 function Login(){
 
@@ -11,73 +11,77 @@ const [email,setEmail] = useState("");
 const [password,setPassword] = useState("");
 
 const handleSubmit = async (e)=>{
+  e.preventDefault();
 
-e.preventDefault();
+  try{
+    const res = await API.post("/login/",{
+      email,
+      password
+    });
 
-try{
+    const {status, client_id, auth_url} = res.data;
 
-const res = await API.post("/login/",{
-email,
-password
-});
+    localStorage.setItem("client_id",client_id);
 
-const {status, client_id, auth_url} = res.data;
+    if(status === "login_success"){
+      navigate("/");
+    }
 
-localStorage.setItem("client_id",client_id);
+    if(status === "redirect_fyers"){
+      window.location.href = auth_url;
+    }
 
-if(status === "login_success"){
-navigate("/");
-}
-
-if(status === "redirect_fyers"){
-window.location.href = auth_url;
-}
-
-}catch{
-
-alert("Invalid credentials");
-
-}
-
+  }catch{
+    alert("Invalid credentials");
+  }
 };
 
 return(
 
 <div className="auth-wrapper">
 
-<div className="auth-card">
+  {/* LOGO */}
+  <div className="logo" onClick={()=>navigate("/")}>
+    <span className="logo-red">T</span>ime&nbsp;
+    <span className="logo-red">L</span>ine&nbsp;
+    <span className="logo-red">I</span>nvestments&nbsp;
+    <span className="logo-red">P</span>vt&nbsp;
+    <span className="logo-red">L</span>td
+  </div>
 
-<h2 className="auth-title">Login</h2>
+  <div className="auth-card">
 
-<form onSubmit={handleSubmit}>
+    <h2 className="auth-title">Login</h2>
 
-<input
-className="auth-input"
-type="email"
-placeholder="Email"
-onChange={(e)=>setEmail(e.target.value)}
-required
-/>
+    <form onSubmit={handleSubmit}>
 
-<input
-className="auth-input"
-type="password"
-placeholder="Password"
-onChange={(e)=>setPassword(e.target.value)}
-required
-/>
+      <input
+        className="auth-input"
+        type="email"
+        placeholder="Email"
+        onChange={(e)=>setEmail(e.target.value)}
+        required
+      />
 
-<button className="auth-button" type="submit">
-Login
-</button>
+      <input
+        className="auth-input"
+        type="password"
+        placeholder="Password"
+        onChange={(e)=>setPassword(e.target.value)}
+        required
+      />
 
-</form>
+      <button className="auth-button" type="submit">
+        Login
+      </button>
 
-<div className="auth-footer">
-Don't have an account? <Link to="/register">Register</Link>
-</div>
+    </form>
 
-</div>
+    <div className="auth-footer">
+      Don't have an account? <Link to="/register">Register</Link>
+    </div>
+
+  </div>
 
 </div>
 

@@ -142,7 +142,15 @@ function Home() {
 
         {/* TOPBAR */}
         <div className="topbar">
-          <h2>Timeline Investments</h2>
+          <div className="logo" onClick={()=>navigate("/")} >
+
+<span className="logo-red">T</span>ime&nbsp;
+<span className="logo-red">L</span>ine&nbsp;
+<span className="logo-red">I</span>nvestments&nbsp;
+<span className="logo-red">P</span>vt&nbsp;
+<span className="logo-red">L</span>td
+
+</div>
 
           <button onClick={logout} className="logout-btn">
             Logout

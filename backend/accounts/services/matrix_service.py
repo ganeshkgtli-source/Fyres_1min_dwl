@@ -1,135 +1,119 @@
 import pandas as pd
-import psycopg2
-from django.conf import settings
 import io
+from datetime import datetime, timedelta
+
+from accounts.models import BhavcopyFile, GeneratedFile
 
 
-def create_presence_matrix_from_db():
+def create_security_presence_matrix():
 
-    conn = psycopg2.connect(
-        dbname=settings.DATABASES["default"]["NAME"],
-        user=settings.DATABASES["default"]["USER"],
-        password=settings.DATABASES["default"]["PASSWORD"],
-        host=settings.DATABASES["default"]["HOST"],
-        port=settings.DATABASES["default"]["PORT"],
-    )
+    print("Starting presence matrix generation...")
 
-    query = """
-        SELECT file_name, file_data
-        FROM bhavcopy_files
-        WHERE is_deleted = false
-    """
+    # =========================
+    # LOAD UNIQUE SECURITIES
+    # =========================
+    unique_file = r"C:\FYRES_NEW\backend\unique_security_ids_alldata.csv"
 
-    df = pd.read_sql(query, conn)
+    presence_df = pd.read_csv(unique_file)
 
-    if df.empty:
-        conn.close()
-        return "No bhavcopy data found"
+    presence_df = presence_df[["SECURITY_ID", "SYMBOL"]]
 
-    presence = []
+# Remove duplicates properly
+    presence_df = presence_df.drop_duplicates(subset=["SECURITY_ID"])
 
-    for _, row in df.iterrows():
+# Clean values
+    presence_df["SECURITY_ID"] = presence_df["SECURITY_ID"].astype(str).str.strip()
+    presence_df["SYMBOL"] = presence_df["SYMBOL"].astype(str).str.strip()
+
+    start_date = datetime(2017, 1, 1)
+    end_date = datetime.today()
+
+    current_date = start_date
+
+    # =========================
+    # LOOP DATES
+    # =========================
+    while current_date <= end_date:
+
+        year = current_date.strftime("%Y")
+        month = current_date.strftime("%b")
+        day = current_date.strftime("%d")
+
+        col_name = (year, month, day)
+
+        print("Processing:", current_date.date())
 
         try:
-            csv_data = row["file_data"]
+            bhav_obj = BhavcopyFile.objects.filter(
+                trade_date=current_date.date(),
+                is_deleted=False
+            ).first()
 
-            data = pd.read_csv(io.BytesIO(csv_data))
+            if not bhav_obj:
+                print("Missing in DB:", current_date.date())
+                presence_df[col_name] = "NO"
+            else:
+                df = pd.read_csv(io.BytesIO(bhav_obj.file_data))
 
-            data["FILE"] = row["file_name"]
+                df.columns = df.columns.str.strip().str.upper()
 
-            presence.append(data)
+                if "SECURITY_ID" not in df.columns:
+                    print("Column missing in:", current_date.date())
+                    presence_df[col_name] = "NO"
+                else:
+                    df = df.drop_duplicates(subset=["SECURITY_ID"])
 
-        except Exception:
-            continue
+                    merged = presence_df[["SECURITY_ID", "SYMBOL"]].copy()
 
-    if not presence:
-        conn.close()
-        return "No valid files found"
+                    merged["PRESENT"] = merged["SECURITY_ID"].isin(df["SECURITY_ID"])
+                    merged["PRESENT"] = merged["PRESENT"].map({
+                        True: "YES",
+                        False: "NO"
+                    })
 
-    combined = pd.concat(presence)
+                    presence_df[col_name] = merged["PRESENT"]
 
-    pivot = combined.pivot_table(
-        index="SYMBOL",
-        columns="FILE",
-        aggfunc="size",
-        fill_value=0
+        except Exception as e:
+            print("Error:", current_date.date(), e)
+            presence_df[col_name] = "NO"
+
+        current_date += timedelta(days=1)
+
+    # =========================
+    # MULTI-LEVEL HEADER
+    # =========================
+    cols = []
+    for col in presence_df.columns:
+        if col in ["SECURITY_ID", "SYMBOL"]:
+            cols.append((col, ""))
+        else:
+            cols.append(col)
+
+    presence_df.columns = pd.MultiIndex.from_tuples(cols)
+
+    # =========================
+    # SAVE TO DB
+    # =========================
+    output = io.BytesIO()
+    presence_df.to_csv(output, index=False)
+    output.seek(0)
+
+    file_name = "security_presence_matrix.csv"
+
+    GeneratedFile.objects.create(
+        file_name=file_name,
+        file_data=output.getvalue()
     )
 
-    pivot = pivot.applymap(lambda x: 1 if x > 0 else 0)
-
-    csv_buffer = io.StringIO()
-
-    pivot.to_csv(csv_buffer)
-
-    csv_data = csv_buffer.getvalue()
-
-    cursor = conn.cursor()
-
-    cursor.execute(
-        """
-        INSERT INTO generated_files (file_name, file_data)
-        VALUES (%s, %s)
-        """,
-        ("presence_matrix.csv", csv_data)
-    )
-
-    conn.commit()
-    conn.close()
+    print("Matrix saved to DB")
 
     return "Matrix generated successfully"
 
-
-def get_latest_matrix():
-
-    conn = psycopg2.connect(
-        dbname=settings.DATABASES["default"]["NAME"],
-        user=settings.DATABASES["default"]["USER"],
-        password=settings.DATABASES["default"]["PASSWORD"],
-        host=settings.DATABASES["default"]["HOST"],
-        port=settings.DATABASES["default"]["PORT"],
-    )
-
-    cursor = conn.cursor()
-
-    cursor.execute(
-        """
-        SELECT file_name, file_data
-        FROM generated_files
-        ORDER BY id DESC
-        LIMIT 1
-        """
-    )
-
-    row = cursor.fetchone()
-
-    conn.close()
-
-    return row
-
-
 def get_latest_matrix_data():
 
-    conn = psycopg2.connect(
-        dbname=settings.DATABASES["default"]["NAME"],
-        user=settings.DATABASES["default"]["USER"],
-        password=settings.DATABASES["default"]["PASSWORD"],
-        host=settings.DATABASES["default"]["HOST"],
-        port=settings.DATABASES["default"]["PORT"],
-    )
+    obj = GeneratedFile.objects.order_by("-created_at").first()
 
-    cursor = conn.cursor()
+    if not obj:
+        return None
 
-    cursor.execute(
-        """
-        SELECT file_data
-        FROM generated_files
-        ORDER BY id DESC
-        LIMIT 1
-        """
-    )
-
-    row = cursor.fetchone()
-
-    conn.close()
-
-    return row
+    return obj.file_data   # only return data

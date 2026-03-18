@@ -2,6 +2,7 @@ import { useState } from "react";
 import API from "../api/api";
 import { useNavigate, Link } from "react-router-dom";
 // import "./auth.css";
+import "../styles/files.css"
 
 function Register() {
 
@@ -56,76 +57,52 @@ function Register() {
 
   };
 
-  return(
+ return(
 
-    <div className="auth-wrapper">
+<div className="auth-wrapper">
 
-      <div className="auth-card">
+  {/* LOGO */}
+  <div className="logo" onClick={()=>navigate("/")}>
+    <span className="logo-red">T</span>ime&nbsp;
+    <span className="logo-red">L</span>ine&nbsp;
+    <span className="logo-red">I</span>nvestments&nbsp;
+    <span className="logo-red">P</span>vt&nbsp;
+    <span className="logo-red">L</span>td
+  </div>
 
-        <h2 className="auth-title">Create Account</h2>
+  <div className="auth-card">
 
-        {error && <p className="auth-error">{error}</p>}
+    <h2 className="auth-title">Create Account</h2>
 
-        <form onSubmit={handleSubmit}>
+    {error && <p className="auth-error">{error}</p>}
 
-          <input
-            className="auth-input"
-            name="username"
-            placeholder="Username"
-            onChange={handleChange}
-            required
-          />
+    <form onSubmit={handleSubmit}>
 
-          <input
-            className="auth-input"
-            name="email"
-            type="email"
-            placeholder="Email"
-            onChange={handleChange}
-            required
-          />
+      <input className="auth-input" name="username" placeholder="Username" onChange={handleChange} required />
 
-          <input
-            className="auth-input"
-            name="password"
-            type="password"
-            placeholder="Password"
-            onChange={handleChange}
-            required
-          />
+      <input className="auth-input" name="email" type="email" placeholder="Email" onChange={handleChange} required />
 
-          <input
-            className="auth-input"
-            name="client_id"
-            placeholder="Fyers Client ID"
-            onChange={handleChange}
-            required
-          />
+      <input className="auth-input" name="password" type="password" placeholder="Password" onChange={handleChange} required />
 
-          <input
-            className="auth-input"
-            name="secret_key"
-            placeholder="Fyers Secret Key"
-            onChange={handleChange}
-            required
-          />
+      <input className="auth-input" name="client_id" placeholder="Fyers Client ID" onChange={handleChange} required />
 
-          <button className="auth-button" type="submit">
-            Register
-          </button>
+      <input className="auth-input" name="secret_key" placeholder="Fyers Secret Key" onChange={handleChange} required />
 
-        </form>
+      <button className="auth-button" type="submit">
+        Register
+      </button>
 
-        <div className="auth-footer">
-          Already have an account? <Link to="/login">Login</Link>
-        </div>
+    </form>
 
-      </div>
-
+    <div className="auth-footer">
+      Already have an account? <Link to="/login">Login</Link>
     </div>
 
-  );
+  </div>
 
+</div>
+
+);
 }
 
 export default Register;

@@ -1,5 +1,5 @@
-from datetime import timedelta, timezone
-
+from datetime import timedelta
+from django.utils import timezone
 from django.db import models
 from django.contrib.auth.hashers import make_password
 from .utils.encryption import encrypt_value, decrypt_value
@@ -128,14 +128,17 @@ class DownloadLog(models.Model):
     def __str__(self):
         return self.file_name
 
-from django.db import models
+ 
 
 class OneMinDataFile(models.Model):
 
     symbol = models.CharField(max_length=100)
+
     file_name = models.CharField(max_length=255)
 
-    file_data = models.BinaryField()  # stores CSV file
+    file_data = models.BinaryField()  # ✅ compressed (gzip)
+
+    file_path = models.TextField(null=True, blank=True)  # 🆕 NEW (local CSV path)
 
     created_at = models.DateTimeField(auto_now_add=True)
 

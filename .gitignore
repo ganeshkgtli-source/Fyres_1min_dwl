@@ -3,3 +3,5 @@ __pycache__/
 *.pyc
 venv/
 bhavcopy/
+data_files/
+fyersApi.log
