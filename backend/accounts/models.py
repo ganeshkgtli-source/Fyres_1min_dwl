@@ -1,3 +1,5 @@
+from datetime import timedelta, timezone
+
 from django.db import models
 from django.contrib.auth.hashers import make_password
 from .utils.encryption import encrypt_value, decrypt_value
@@ -41,7 +43,8 @@ class AccessToken(models.Model):
     token_date = models.DateField()
 
     created_at = models.DateTimeField(auto_now_add=True)
-
+    def is_valid(self):
+        return timezone.now() <= self.created_at + timedelta(hours=24)
     class Meta:
         unique_together = ("client_id", "token_date")
         indexes = [

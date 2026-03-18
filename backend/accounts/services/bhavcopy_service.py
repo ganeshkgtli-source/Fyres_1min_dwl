@@ -201,7 +201,7 @@ def download_bhavcopy(date_obj):
     try:
 
         response = session.get(url, timeout=(3, 40))
-
+        # print(response)
         if response.status_code != 200:
 
             file_name = f"EQ{date_obj.strftime('%d%m%y')}.CSV"
@@ -265,10 +265,18 @@ def download_bhavcopy(date_obj):
 # DOWNLOAD YEAR
 # -------------------------------------------------
 
+
 def download_year_data(year):
 
+    today = datetime.date.today()
+
     start_date = datetime.date(year, 1, 1)
-    end_date = datetime.date(year, 12, 31)
+
+    # 🔥 Key fix here
+    if year == today.year:
+        end_date = today
+    else:
+        end_date = datetime.date(year, 12, 31)
 
     current = start_date
 

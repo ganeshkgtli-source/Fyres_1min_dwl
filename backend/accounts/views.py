@@ -4,7 +4,7 @@ from django.http import JsonResponse, HttpResponse
 from django.contrib.auth.hashers import check_password
 from django.shortcuts import redirect
 from urllib.parse import quote
-from datetime import date
+from datetime import date, timezone
 import datetime
 import io
 import zipfile
@@ -21,7 +21,8 @@ from .utils.fyers_auth import generate_fyers_token
 from threading import Thread
 import time
 from django.http import JsonResponse, StreamingHttpResponse
-
+from datetime import timedelta
+from django.utils import timezone
 from accounts.services.symbol_service import (
     download_bse_symbols,
     get_filtered_symbols
@@ -154,18 +155,18 @@ def fyers_login(request, client_id):
 @api_view(["GET"])
 def check_token(request, client_id):
 
-    today = date.today()
-
     token = AccessToken.objects.filter(
-        client_id=client_id,
-        token_date=today
-    ).first()
+        client_id=client_id
+    ).order_by("-created_at").first()
 
-    if token:
+    if not token:
+        return Response({"token_exists": False})
+
+    # ✅ 24-hour validation
+    if timezone.now() <= token.created_at + timedelta(hours=24):
         return Response({"token_exists": True})
 
     return Response({"token_exists": False})
-
 
 # =========================
 # FYERS CALLBACK
@@ -190,10 +191,12 @@ def fyers_callback(request):
         return JsonResponse({"error": "Token generation failed"})
 
     AccessToken.objects.update_or_create(
-        client_id=user.client_id,
-        token_date=date.today(),
-        defaults={"access_token": access_token}
-    )
+    client_id=user.client_id,
+    defaults={
+        "access_token": access_token,
+        "created_at": timezone.now()  # force refresh time
+    }
+)
 
     return redirect("http://localhost:5173/")
 
@@ -201,32 +204,42 @@ def fyers_callback(request):
 # =========================
 # BSE SYMBOL DOWNLOAD
 # =========================
-
 def download_bse_file(request):
 
     try:
-
         df = download_bse_symbols()
 
-        symbols = get_filtered_symbols(df)
+        # column 9 = fyers symbol
+        df["fyers_symbol"] = df.iloc[:, 9].astype(str)
 
-        filtered_df = df[df.iloc[:,9].astype(str).str.endswith(("-A","-B"))]
+        # filter (-A, -B)
+        filtered_df = df[
+            df["fyers_symbol"].str.endswith(("-A", "-B"))
+        ]
 
-        filtered_df.to_csv("BSE_CM_symbol_list1.csv", index=False)
+        # ✅ Convert to CSV (in memory)
+        csv_buffer = io.StringIO()
+        filtered_df.to_csv(csv_buffer, index=False)
+        csv_bytes = csv_buffer.getvalue().encode()
+
+        # ✅ Save in DB
+        OneMinDataFile.objects.create(
+            symbol="BSE_CMLIST",   # 🔥 this is what you wanted
+            file_name="BSE_CM_symbol_list.csv",
+            file_data=csv_bytes
+        )
 
         return JsonResponse({
             "status": "success",
-            "message": "BSE file downloaded",
-            "total_symbols": len(symbols)
+            "message": "BSE CM list stored in DB",
+            "total_symbols": len(filtered_df)
         })
 
     except Exception as e:
-
         return JsonResponse({
             "status": "error",
             "message": str(e)
         })
-
 
 # =========================
 # 1 MIN DATA DOWNLOAD
@@ -676,7 +689,6 @@ def list_files(request):
         })
 
     return Response(data)
-
 
 
 

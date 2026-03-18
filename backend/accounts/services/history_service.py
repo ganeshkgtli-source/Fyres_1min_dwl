@@ -2,14 +2,44 @@ import pandas as pd
 import time
 import io
 from datetime import datetime, timedelta
-from openpyxl import load_workbook
-from openpyxl.styles import PatternFill
 
 from accounts.services.fyers_client import get_fyers_client
 from accounts.services.symbol_service import download_bse_symbols, get_filtered_symbols
 from accounts.services.data_formatter import convert_time
 
 from accounts.models import BhavcopyFile, OneMinDataFile
+
+
+# =========================================================
+# GET LAST SAVED DATE
+# =========================================================
+
+def get_last_saved_date(symbol):
+    try:
+        obj = OneMinDataFile.objects.filter(
+            symbol=symbol,
+            is_deleted=False
+        ).first()
+
+        if not obj:
+            return None
+
+        df = pd.read_csv(io.BytesIO(obj.file_data))
+
+        if df.empty or "DATE" not in df.columns:
+            return None
+
+        df["DATE"] = pd.to_datetime(df["DATE"], errors="coerce")
+        last_date = df["DATE"].max()
+
+        if pd.isna(last_date):
+            return None
+
+        return last_date.date()
+
+    except Exception as e:
+        print("READ EXISTING FILE ERROR:", e)
+        return None
 
 
 # =========================================================
@@ -48,7 +78,6 @@ def format_dataframe(df, symbol):
     })
 
     df["TOTAL_VOLUME"] = df.groupby("DATE")["VOLUME"].cumsum()
-
     df["SHARE_CHECK"] = ""
 
     return df[[
@@ -66,15 +95,16 @@ def daterange_chunks(start, end, chunk=100):
 
     curr = start
 
-    while curr < end:
+    while curr <= end:
         next_date = min(curr + timedelta(days=chunk-1), end)
         yield curr, next_date
         curr = next_date + timedelta(days=1)
 
 
 # =========================================================
-# APPEND EOD ROWS (FROM DB)
+# APPEND EOD ROWS
 # =========================================================
+
 
 def append_eod_rows(df, symbol):
 
@@ -186,7 +216,7 @@ def append_eod_rows(df, symbol):
 
 
 # =========================================================
-# MAIN DOWNLOAD FUNCTION
+# MAIN FUNCTION
 # =========================================================
 
 def download_1min_data(client_id):
@@ -204,29 +234,45 @@ def download_1min_data(client_id):
 
     print("Total symbols:",len(symbols))
 
-    start_date = datetime(2018,4,1)
-    now = datetime.now()
+    today = datetime.now().date()
 
-    # Before 4 PM → previous day
-    if now.hour < 16:
-        end_date = now - timedelta(days=1)
+    if datetime.now().hour < 16:
+        end_date = today - timedelta(days=1)
     else:
-        end_date = now
+        end_date = today
 
     api_calls = 0
 
     for symbol in symbols:
+        symbol_start = time.time()
 
         print("\n===================================")
         print("Downloading:",symbol)
         print("===================================")
 
-        main_df = pd.DataFrame()
+        # ================================
+        # INCREMENTAL LOGIC
+        # ================================
+        default_start = datetime(2018, 4, 1).date()
+        last_saved = get_last_saved_date(symbol)
+
+        if last_saved:
+            start_date = last_saved + timedelta(days=1)
+            print("Resuming from:", start_date)
+        else:
+            start_date = default_start
+            print("Fresh download from:", start_date)
+
+        if start_date > end_date:
+            print("Already up-to-date:", symbol)
+            continue
+
+        all_chunks = []
         rotation = 0
 
         for chunk_start,chunk_end in daterange_chunks(start_date,end_date):
 
-            print("ROTATION",rotation,"|",chunk_start.date(),"->",chunk_end.date())
+            print("ROTATION",rotation,"|",chunk_start,"->",chunk_end)
 
             payload = {
                 "symbol":symbol,
@@ -251,7 +297,7 @@ def download_1min_data(client_id):
                     df = convert_time(df)
                     df = format_dataframe(df,symbol)
 
-                    main_df = pd.concat([main_df,df],ignore_index=True)
+                    all_chunks.append(df)
 
                     print("OK:",len(df),"rows")
 
@@ -264,77 +310,57 @@ def download_1min_data(client_id):
             rotation += 1
             time.sleep(0.3)
 
-        
+        if not all_chunks:
+            print("WARNING: No new data for",symbol)
+            continue
 
-        if main_df.empty:
-            print("WARNING: No data for",symbol)
+        main_df = pd.concat(all_chunks, ignore_index=True)
 
-        else:
-            main_df = main_df.drop_duplicates(
-                subset=["DATE","TIME","SYMBOL"]
-            ).reset_index(drop=True)
+        # ================================
+        # MERGE OLD DATA
+        # ================================
+        existing_obj = OneMinDataFile.objects.filter(
+            symbol=symbol,
+            is_deleted=False
+        ).first()
 
-            print("Appending EOD rows")
-            main_df = append_eod_rows(main_df,symbol)
+        if existing_obj:
+            old_df = pd.read_csv(io.BytesIO(existing_obj.file_data))
+            main_df = pd.concat([old_df, main_df], ignore_index=True)
 
-        
-        # SAVE TO DB
-        
+        main_df = main_df.drop_duplicates(
+            subset=["DATE","TIME","SYMBOL"]
+        ).reset_index(drop=True)
 
-        if not main_df.empty:
+        print("Appending EOD rows")
+        main_df = main_df[main_df["TIME_FRAME"] != "EOD"]
+        main_df = append_eod_rows(main_df,symbol)
 
-            file_symbol = symbol.replace(":","_").replace("-","_")
-            file_name = f"{file_symbol}_1MIN.xlsx"
+        # ================================
+        # SAVE (CSV)
+        # ================================
+        file_symbol = symbol.replace(":","_").replace("-","_")
+        file_name = f"{file_symbol}_1MIN.csv"
 
-            # Save to memory
-            output = io.BytesIO()
-            main_df.to_excel(output, index=False, engine="openpyxl")
-            output.seek(0)
+        output = io.BytesIO()
+        main_df.to_csv(output, index=False)
+        output.seek(0)
 
-            # Highlight EOD
-            wb = load_workbook(output)
-            ws = wb.active
+        OneMinDataFile.objects.update_or_create(
+            symbol=symbol,
+            file_name=file_name,
+            defaults={
+                "file_data": output.getvalue(),
+                "is_deleted": False
+            }
+        )
 
-            highlight = PatternFill(
-                start_color="90EE90",
-                end_color="90EE90",
-                fill_type="solid"
-            )
-
-            time_frame_col = None
-
-            for col in range(1, ws.max_column + 1):
-                if ws.cell(row=1, column=col).value == "TIME_FRAME":
-                    time_frame_col = col
-                    break
-
-            if time_frame_col:
-                for row in ws.iter_rows(min_row=2, max_row=ws.max_row):
-                    if str(row[time_frame_col - 1].value).strip() == "EOD":
-                        for cell in row:
-                            cell.fill = highlight
-
-            final_buffer = io.BytesIO()
-            wb.save(final_buffer)
-            wb.close()
-            final_buffer.seek(0)
-
-            # Store in DB
-            OneMinDataFile.objects.update_or_create(
-                symbol=symbol,
-                file_name=file_name,
-                defaults={
-                    "file_data": final_buffer.getvalue(),
-                    "is_deleted": False
-                }
-            )
-
-            print("Saved to DB:",file_name)
-
-        else:
-            print("SKIPPED:",symbol)
+        print("Saved to DB:",file_name)
 
         time.sleep(1)
+
+        symbol_end = time.time()
+        print(f"⏱ Time for {symbol}: {symbol_end - symbol_start:.2f} sec")
 
     print("\n====================================")
     print("DOWNLOAD COMPLETED")
