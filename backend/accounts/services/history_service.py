@@ -2,6 +2,7 @@ import pandas as pd
 import time
 import io
 from datetime import datetime, timedelta
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from accounts.services.fyers_client import get_fyers_client
 from accounts.services.symbol_service import download_bse_symbols, get_filtered_symbols
@@ -38,7 +39,7 @@ def get_last_saved_date(symbol):
         return last_date.date()
 
     except Exception as e:
-        print("READ EXISTING FILE ERROR:", e)
+        print(f"[{symbol}] READ ERROR:", e)
         return None
 
 
@@ -80,11 +81,7 @@ def format_dataframe(df, symbol):
     df["TOTAL_VOLUME"] = df.groupby("DATE")["VOLUME"].cumsum()
     df["SHARE_CHECK"] = ""
 
-    return df[[
-        "DATE","DAY","TIME_FRAME","CATEGORY","SYMBOL",
-        "CANDLE_COUNT","TIME","OPEN","HIGH","LOW",
-        "CLOSE","VOLUME","TOTAL_VOLUME","SHARE_CHECK"
-    ]]
+    return df
 
 
 # =========================================================
@@ -102,121 +99,141 @@ def daterange_chunks(start, end, chunk=100):
 
 
 # =========================================================
-# APPEND EOD ROWS
+# PROCESS SINGLE SYMBOL (PARALLEL SAFE)
 # =========================================================
 
+def process_symbol(symbol, client_id, end_date):
 
-def append_eod_rows(df, symbol):
+    # ✅ FIX 1: Separate fyers client per thread
+    fyers = get_fyers_client(client_id)
 
-    if df.empty:
-        return df
+    symbol_start = time.time()
 
-    bse_symbol = symbol.strip()
-    eod_time = datetime.strptime("15:30:59","%H:%M:%S").time()
+    print(f"\n===================================")
+    print(f"[{symbol}] Downloading")
+    print(f"===================================")
 
-    eod_rows = []
+    default_start = datetime(2018, 4, 1).date()
+    last_saved = get_last_saved_date(symbol)
 
-    for date in sorted(df["DATE"].unique()):
+    if last_saved:
+        start_date = last_saved + timedelta(days=1)
+        print(f"[{symbol}] Resuming from:", start_date)
+    else:
+        start_date = default_start
+        print(f"[{symbol}] Fresh download from:", start_date)
 
-        date_obj = pd.to_datetime(date).date()
+    if start_date > end_date:
+        print(f"[{symbol}] Already up-to-date")
+        return
 
-        try:
-            bhav_obj = BhavcopyFile.objects.filter(
-                trade_date=date_obj,
-                is_deleted=False
-            ).first()
+    all_chunks = []
+    rotation = 0
+    first_valid_found = False
+    empty_count = 0
 
-            if not bhav_obj:
-                continue
+    for chunk_start, chunk_end in daterange_chunks(start_date, end_date):
 
-            bhav = pd.read_csv(io.BytesIO(bhav_obj.file_data))
-            bhav.columns = bhav.columns.str.strip().str.upper()
+        print(f"[{symbol}] ROTATION {rotation} | {chunk_start} -> {chunk_end}")
 
-        except Exception as e:
-            print("BHAV DB ERROR:", e)
-            continue
+        payload = {
+            "symbol": symbol,
+            "resolution": "1",
+            "date_format": "1",
+            "range_from": chunk_start.strftime("%Y-%m-%d"),
+            "range_to": chunk_end.strftime("%Y-%m-%d"),
+            "cont_flag": "1"
+        }
 
-        bhav["SYMBOL"] = bhav["SYMBOL"].astype(str).str.strip()
+        # 🔁 Retry logic
+        for attempt in range(3):
+            try:
+                history = fyers.history(payload)
 
-        row = bhav[bhav["SYMBOL"] == bse_symbol]
+                if history.get("candles"):
 
-        if row.empty:
-            continue
+                    df = pd.DataFrame(
+                        history["candles"],
+                        columns=["timestamp","open","high","low","close","volume"]
+                    )
 
-        r = row.iloc[0]
+                    df = convert_time(df)
+                    df = format_dataframe(df, symbol)
 
-        try:
+                    all_chunks.append(df)
 
-            day_df = df[df["DATE"] == date].sort_values("TIME")
+                    print(f"[{symbol}] OK:", len(df), "rows")
 
-            last_close = None
-            last_total = None
+                    first_valid_found = True
+                    empty_count = 0
 
-            if not day_df.empty:
-                last_close = float(day_df.iloc[-1]["CLOSE"])
-                last_total = float(day_df.iloc[-1]["TOTAL_VOLUME"])
+                else:
+                    empty_count += 1
 
-            eod_close  = float(r["CLOSE"])
-            eod_volume = float(r["NO_OF_SHRS"])
+                    if rotation % 5 == 0:
+                        print(f"[{symbol}] WARNING: No candles")
 
-            close_diff = None
-            volume_diff = None
+                break
 
-            if last_close is not None:
-                close_diff = round(eod_close - last_close,4)
+            except Exception as e:
+                print(f"[{symbol}] ERROR:", e, "Retry:", attempt)
+                time.sleep(1)
 
-            if last_total is not None:
-                volume_diff = int(eod_volume - last_total)
+        # 🔥 Stop early if no data in old years
+        if not first_valid_found and empty_count > 5:
+            print(f"[{symbol}] Skipping old years (no data)")
+            break
 
-            # FIX CLOSE
-            if last_close is not None and eod_close != last_close:
-                eod_close = last_close
+        rotation += 1
 
-            # FIX VOLUME
-            if last_total is not None and eod_volume != last_total:
-                eod_volume = last_total
+        # ✅ FIX 3: Reduced sleep
+        time.sleep(0.05)
 
-            share_check = "YES" if last_total == eod_volume else "NO"
+    if not all_chunks:
+        print(f"[{symbol}] No new data")
+        return
 
-            eod_rows.append({
-                "DATE":date,
-                "DAY":pd.Timestamp(date_obj).day_name().upper(),
-                "TIME_FRAME":"EOD",
-                "CATEGORY":"XX",
-                "SYMBOL":symbol,
-                "CANDLE_COUNT":999,
-                "TIME":eod_time,
+    main_df = pd.concat(all_chunks, ignore_index=True)
 
-                "OPEN":float(r["OPEN"]),
-                "HIGH":float(r["HIGH"]),
-                "LOW":float(r["LOW"]),
+    # Merge old data
+    existing_obj = OneMinDataFile.objects.filter(
+        symbol=symbol,
+        is_deleted=False
+    ).first()
 
-                "CLOSE":eod_close,
-                "VOLUME":eod_volume,
-                "TOTAL_VOLUME":eod_volume,
+    if existing_obj:
+        old_df = pd.read_csv(io.BytesIO(existing_obj.file_data))
+        main_df = pd.concat([old_df, main_df], ignore_index=True)
 
-                "CLOSE_DIFF":close_diff,
-                "VOLUME_DIFF":volume_diff,
+    main_df = main_df.drop_duplicates(
+        subset=["DATE","TIME","SYMBOL"]
+    ).reset_index(drop=True)
 
-                "SHARE_CHECK":share_check
-            })
+    # Save CSV
+    file_symbol = symbol.replace(":","_").replace("-","_")
+    file_name = f"{file_symbol}_1MIN.csv"
 
-        except Exception as e:
-            print("EOD ERROR:", e)
+    output = io.BytesIO()
+    main_df.to_csv(output, index=False)
+    output.seek(0)
 
-    if not eod_rows:
-        return df
+    OneMinDataFile.objects.update_or_create(
+        symbol=symbol,
+        defaults={
+            "file_name": file_name,
+            "file_data": output.getvalue(),
+            "is_deleted": False
+        }
+    )
 
-    eod_df = pd.DataFrame(eod_rows)
+    print(f"[{symbol}] Saved to DB:", file_name)
 
-    final_df = pd.concat([df,eod_df],ignore_index=True)
-    final_df = final_df.sort_values(["DATE","TIME"]).reset_index(drop=True)
-
-    return final_df
+    symbol_end = time.time()
+    print(f"[{symbol}] ⏱ Time:", round(symbol_end - symbol_start, 2), "sec")
 
 
 # =========================================================
-# MAIN FUNCTION
+# MAIN FUNCTION (PARALLEL)
 # =========================================================
 
 def download_1min_data(client_id):
@@ -225,14 +242,10 @@ def download_1min_data(client_id):
     print("STARTING 1 MIN DATA DOWNLOAD")
     print("==============================")
 
-    fyers = get_fyers_client(client_id)
-
-    print("\nFetching symbol list...")
-
     df_symbols = download_bse_symbols()
     symbols = get_filtered_symbols(df_symbols)
 
-    print("Total symbols:",len(symbols))
+    print("Total symbols:", len(symbols))
 
     today = datetime.now().date()
 
@@ -241,128 +254,19 @@ def download_1min_data(client_id):
     else:
         end_date = today
 
-    api_calls = 0
+    # ✅ FIX 2: Safe worker count
+    max_workers = 3
 
-    for symbol in symbols:
-        symbol_start = time.time()
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
 
-        print("\n===================================")
-        print("Downloading:",symbol)
-        print("===================================")
+        futures = [
+            executor.submit(process_symbol, symbol, client_id, end_date)
+            for symbol in symbols
+        ]
 
-        # ================================
-        # INCREMENTAL LOGIC
-        # ================================
-        default_start = datetime(2018, 4, 1).date()
-        last_saved = get_last_saved_date(symbol)
-
-        if last_saved:
-            start_date = last_saved + timedelta(days=1)
-            print("Resuming from:", start_date)
-        else:
-            start_date = default_start
-            print("Fresh download from:", start_date)
-
-        if start_date > end_date:
-            print("Already up-to-date:", symbol)
-            continue
-
-        all_chunks = []
-        rotation = 0
-
-        for chunk_start,chunk_end in daterange_chunks(start_date,end_date):
-
-            print("ROTATION",rotation,"|",chunk_start,"->",chunk_end)
-
-            payload = {
-                "symbol":symbol,
-                "resolution":"1",
-                "date_format":"1",
-                "range_from":chunk_start.strftime("%Y-%m-%d"),
-                "range_to":chunk_end.strftime("%Y-%m-%d"),
-                "cont_flag":"1"
-            }
-
-            try:
-                history = fyers.history(payload)
-                api_calls += 1
-
-                if "candles" in history and history["candles"]:
-
-                    df = pd.DataFrame(
-                        history["candles"],
-                        columns=["timestamp","open","high","low","close","volume"]
-                    )
-
-                    df = convert_time(df)
-                    df = format_dataframe(df,symbol)
-
-                    all_chunks.append(df)
-
-                    print("OK:",len(df),"rows")
-
-                else:
-                    print("WARNING: No candles")
-
-            except Exception as e:
-                print("ERROR:",e)
-
-            rotation += 1
-            time.sleep(0.3)
-
-        if not all_chunks:
-            print("WARNING: No new data for",symbol)
-            continue
-
-        main_df = pd.concat(all_chunks, ignore_index=True)
-
-        # ================================
-        # MERGE OLD DATA
-        # ================================
-        existing_obj = OneMinDataFile.objects.filter(
-            symbol=symbol,
-            is_deleted=False
-        ).first()
-
-        if existing_obj:
-            old_df = pd.read_csv(io.BytesIO(existing_obj.file_data))
-            main_df = pd.concat([old_df, main_df], ignore_index=True)
-
-        main_df = main_df.drop_duplicates(
-            subset=["DATE","TIME","SYMBOL"]
-        ).reset_index(drop=True)
-
-        print("Appending EOD rows")
-        main_df = main_df[main_df["TIME_FRAME"] != "EOD"]
-        main_df = append_eod_rows(main_df,symbol)
-
-        # ================================
-        # SAVE (CSV)
-        # ================================
-        file_symbol = symbol.replace(":","_").replace("-","_")
-        file_name = f"{file_symbol}_1MIN.csv"
-
-        output = io.BytesIO()
-        main_df.to_csv(output, index=False)
-        output.seek(0)
-
-        OneMinDataFile.objects.update_or_create(
-            symbol=symbol,
-            file_name=file_name,
-            defaults={
-                "file_data": output.getvalue(),
-                "is_deleted": False
-            }
-        )
-
-        print("Saved to DB:",file_name)
-
-        time.sleep(1)
-
-        symbol_end = time.time()
-        print(f"⏱ Time for {symbol}: {symbol_end - symbol_start:.2f} sec")
+        for future in as_completed(futures):
+            future.result()
 
     print("\n====================================")
     print("DOWNLOAD COMPLETED")
-    print("TOTAL API CALLS:",api_calls)
     print("====================================")
