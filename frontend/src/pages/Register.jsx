@@ -2,7 +2,7 @@ import { useState } from "react";
 import API from "../api/api";
 import { useNavigate, Link } from "react-router-dom";
 // import "./auth.css";
-import "../styles/files.css"
+import "../styles/auth.css"
 
 function Register() {
 
