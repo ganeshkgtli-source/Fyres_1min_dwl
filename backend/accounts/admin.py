@@ -1,3 +1,8 @@
 from django.contrib import admin
 
-# Register your models here.
+from .models import *
+
+admin.site.register(OneMinDataFile)
+admin.site.register(BhavcopyFile)
+admin.site.register(DownloadLog)
+admin.site.register(FyersAccount)
