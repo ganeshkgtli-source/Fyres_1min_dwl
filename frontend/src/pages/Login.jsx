@@ -1,92 +1,93 @@
 import { useState } from "react";
 import API from "../api/api";
-import { useNavigate, Link } from "react-router-dom";
-import "../styles/files.css"
+import { useNavigate } from "react-router-dom";
+import "../styles/files.css";
 
-function Login(){
+function Login() {
 
-const navigate = useNavigate();
+  const navigate = useNavigate();
 
-const [email,setEmail] = useState("");
-const [password,setPassword] = useState("");
+  const [email,setEmail] = useState("");
+  const [password,setPassword] = useState("");
 
-const handleSubmit = async (e)=>{
-  e.preventDefault();
+  const handleSubmit = async (e)=>{
+    e.preventDefault();
 
-  try{
-    const res = await API.post("/login/",{
-      email,
-      password
-    });
+    try{
+      const res = await API.post("/login/",{
+        email,
+        password
+      });
 
-    const {status, client_id, auth_url} = res.data;
+      const {status, client_id, auth_url, is_admin} = res.data;
 
-    localStorage.setItem("client_id",client_id);
+      localStorage.setItem("client_id", client_id);
+      localStorage.setItem("is_admin", is_admin);
 
-    if(status === "login_success"){
-      navigate("/");
+      if (status === "login_success") {
+        if (is_admin) {
+          navigate("/admin");   // 🔥 admin
+        } else {
+          navigate("/");        // user
+        }
+      }
+
+      if (status === "fyers_login") {
+        window.location.href = auth_url;
+      }
+
+    }catch{
+      alert("Invalid credentials");
     }
+  };
 
-    if(status === "redirect_fyers"){
-      window.location.href = auth_url;
-    }
+  return(
+    <div className="auth-wrapper">
 
-  }catch{
-    alert("Invalid credentials");
-  }
-};
+      <div className="auth-card">
 
-return(
+        <div className="logo">
+          <span className="logo-red">T</span>ime&nbsp;
+          <span className="logo-red">L</span>ine&nbsp;
+          <span className="logo-red">I</span>nvestments&nbsp;
+          <span className="logo-red">P</span>vt&nbsp;
+          <span className="logo-red">L</span>td
+        </div>
 
-<div className="auth-wrapper">
+        <h2 className="auth-title">Login</h2>
 
-  {/* LOGO */}
-  <div className="logo" onClick={()=>navigate("/")}>
-    <span className="logo-red">T</span>ime&nbsp;
-    <span className="logo-red">L</span>ine&nbsp;
-    <span className="logo-red">I</span>nvestments&nbsp;
-    <span className="logo-red">P</span>vt&nbsp;
-    <span className="logo-red">L</span>td
-  </div>
+        <form onSubmit={handleSubmit}>
 
-  <div className="auth-card">
+          <input
+            className="auth-input"
+            type="email"
+            placeholder="Email"
+            onChange={(e)=>setEmail(e.target.value)}
+            required
+          />
 
-    <h2 className="auth-title">Login</h2>
+          <input
+            className="auth-input"
+            type="password"
+            placeholder="Password"
+            onChange={(e)=>setPassword(e.target.value)}
+            required
+          />
 
-    <form onSubmit={handleSubmit}>
+          <button className="auth-button" type="submit">
+            Login
+          </button>
 
-      <input
-        className="auth-input"
-        type="email"
-        placeholder="Email"
-        onChange={(e)=>setEmail(e.target.value)}
-        required
-      />
+        </form>
 
-      <input
-        className="auth-input"
-        type="password"
-        placeholder="Password"
-        onChange={(e)=>setPassword(e.target.value)}
-        required
-      />
+        <div className="auth-footer">
+          Contact admin for account access
+        </div>
 
-      <button className="auth-button" type="submit">
-        Login
-      </button>
+      </div>
 
-    </form>
-
-    <div className="auth-footer">
-      Don't have an account? <Link to="/register">Register</Link>
     </div>
-
-  </div>
-
-</div>
-
-);
-
+  );
 }
 
 export default Login;

@@ -62,15 +62,16 @@ function Register() {
 <div className="auth-wrapper">
 
   {/* LOGO */}
-  <div className="logo" onClick={()=>navigate("/")}>
+  
+
+  <div className="auth-card">
+    <div className="logo" >
     <span className="logo-red">T</span>ime&nbsp;
     <span className="logo-red">L</span>ine&nbsp;
     <span className="logo-red">I</span>nvestments&nbsp;
     <span className="logo-red">P</span>vt&nbsp;
     <span className="logo-red">L</span>td
   </div>
-
-  <div className="auth-card">
 
     <h2 className="auth-title">Create Account</h2>
 

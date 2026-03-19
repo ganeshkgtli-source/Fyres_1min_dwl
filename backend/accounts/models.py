@@ -12,7 +12,7 @@ class User(models.Model):
     email = models.EmailField(unique=True)
 
     password = models.TextField()
-
+    is_admin = models.BooleanField(default=False)
     client_id = models.CharField(max_length=255, unique=True)
 
     secret_key = models.CharField(max_length=255)

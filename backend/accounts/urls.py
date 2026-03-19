@@ -8,6 +8,11 @@ urlpatterns = [
  
     path("register/", views.register_user),
     path("login/", views.login_view),
+       path("user/dashboard/", views.user_dashboard),
+    path("user/change-password/", views.change_password),
+
+    path("admin/", views.admin_users),
+    path("admin/delete-user/<int:user_id>/", views.delete_user),
 
  
     # FYERS

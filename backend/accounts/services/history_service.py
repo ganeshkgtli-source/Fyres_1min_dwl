@@ -92,10 +92,14 @@ def append_eod_rows(df, symbol):
         return df
 
     print(f"[{symbol}] Processing EOD rows...")
+    df["DATE"] = pd.to_datetime(df["DATE"], errors="coerce").dt.date
+    df["TIME"] = pd.to_datetime(df["TIME"].astype(str), format="%H:%M:%S", errors="coerce").dt.time
 
     bse_symbol = symbol.strip()
     eod_time   = datetime.strptime("15:30:59", "%H:%M:%S").time()
-    dates      = sorted(df["DATE"].unique())
+    # dates      = sorted(df["DATE"].unique())
+    dates = sorted(set(df["DATE"]))
+
 
     bhav_qs = BhavcopyFile.objects.filter(
         trade_date__in=dates,
@@ -225,6 +229,7 @@ def download_1min_data(client_id):
         end_date = today - timedelta(days=1)
     else:
         end_date = today
+    
 
     for i, symbol in enumerate(symbols, 1):
 
@@ -237,7 +242,7 @@ def download_1min_data(client_id):
 
         try:
 
-            default_start = datetime(2018, 4, 1).date()
+            default_start = datetime(2019, 3, 1).date()
             last_saved    = get_last_saved_date(symbol)
 
             if last_saved:
@@ -294,7 +299,7 @@ def download_1min_data(client_id):
 
                 curr = chunk_end + timedelta(days=1)
                 rotation += 1
-                time.sleep(0.05)
+                time.sleep(0.23)
 
             if not all_chunks:
                 print("WARNING: No new data for", symbol)
@@ -312,6 +317,12 @@ def download_1min_data(client_id):
                 old_data = get_file_data(existing_obj)
                 old_df   = pd.read_csv(io.BytesIO(old_data))
                 main_df  = pd.concat([old_df, main_df], ignore_index=True)
+            main_df["DATE"] = pd.to_datetime(main_df["DATE"], errors="coerce").dt.date
+            main_df["TIME"] = pd.to_datetime(
+                 main_df["TIME"].astype(str),
+                 format="%H:%M:%S",
+                errors="coerce"
+                ).dt.time
 
             main_df = main_df.drop_duplicates(
                 subset=["DATE", "TIME", "SYMBOL"]
@@ -320,6 +331,8 @@ def download_1min_data(client_id):
             print("Appending EOD rows...")
             main_df = main_df[main_df["TIME_FRAME"] != "EOD"].copy()
             main_df = append_eod_rows(main_df, symbol)
+            main_df["DATE"] = main_df["DATE"].astype(str)
+            main_df["TIME"] = main_df["TIME"].astype(str)
 
             # ✅ FINAL COLUMN ORDER (MATCHES YOUR SCREENSHOT)
             FINAL_COLUMNS = [

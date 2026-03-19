@@ -72,6 +72,53 @@ def register_user(request):
 # USER LOGIN
 # =========================
 
+# @api_view(["POST"])
+# def login_view(request):
+
+#     serializer = LoginSerializer(data=request.data)
+
+#     if not serializer.is_valid():
+#         return Response(serializer.errors, status=400)
+
+#     email = serializer.validated_data["email"]
+#     password = serializer.validated_data["password"]
+
+#     try:
+#         user = User.objects.get(email=email)
+#     except User.DoesNotExist:
+#         return Response({"error": "User not registered"}, status=401)
+
+#     if not check_password(password, user.password):
+#         return Response({"error": "Invalid password"}, status=401)
+
+#     today = date.today()
+
+#     token = AccessToken.objects.filter(
+#         client_id=user.client_id,
+#         token_date=today
+#     ).first()
+
+#     if token:
+#         return Response({
+#             "status": "login_success",
+#             "client_id": user.client_id
+#         })
+
+#     redirect_uri = quote("http://127.0.0.1:8000/api/fyers-callback/")
+
+#     auth_url = (
+#         "https://api-t1.fyers.in/api/v3/generate-authcode"
+#         f"?client_id={user.client_id}"
+#         f"&redirect_uri={redirect_uri}"
+#         "&response_type=code"
+#         f"&state={user.client_id}"
+#     )
+
+#     return Response({
+#         "status": "fyers_login",
+#         "auth_url": auth_url,
+#         "client_id": user.client_id
+#     })
 @api_view(["POST"])
 def login_view(request):
 
@@ -91,6 +138,15 @@ def login_view(request):
     if not check_password(password, user.password):
         return Response({"error": "Invalid password"}, status=401)
 
+    # 🔥 ADMIN BYPASS (IMPORTANT)
+    if user.is_admin:
+        return Response({
+            "status": "login_success",
+            "client_id": user.client_id,
+            "is_admin": True
+        })
+
+    # ================= NORMAL USER FLOW =================
     today = date.today()
 
     token = AccessToken.objects.filter(
@@ -101,7 +157,8 @@ def login_view(request):
     if token:
         return Response({
             "status": "login_success",
-            "client_id": user.client_id
+            "client_id": user.client_id,
+            "is_admin": False
         })
 
     redirect_uri = quote("http://127.0.0.1:8000/api/fyers-callback/")
@@ -117,9 +174,94 @@ def login_view(request):
     return Response({
         "status": "fyers_login",
         "auth_url": auth_url,
-        "client_id": user.client_id
+        "client_id": user.client_id,
+        "is_admin": False
     })
 
+@api_view(["GET"])
+def user_dashboard(request):
+
+    client_id = request.GET.get("client_id")
+
+    if not client_id:
+        return Response({"error": "client_id required"}, status=400)
+
+    try:
+        user = User.objects.get(client_id=client_id)
+    except User.DoesNotExist:
+        return Response({"error": "User not found"}, status=404)
+
+    latest_token = AccessToken.objects.filter(
+        client_id=client_id
+    ).order_by("-created_at").first()
+
+    token_valid = False
+    remaining = 0
+
+    if latest_token:
+        expiry = latest_token.created_at + timedelta(hours=24)
+        diff = expiry - timezone.now()
+
+        if diff.total_seconds() > 0:
+            token_valid = True
+            remaining = int(diff.total_seconds())
+
+    return Response({
+        "username": user.username,
+        "email": user.email,
+        "client_id": user.client_id,
+        "secret_key": user.secret_key,
+        "token_valid": token_valid,
+        "remaining_seconds": remaining
+    })
+
+from django.contrib.auth.hashers import check_password, make_password
+
+@api_view(["POST"])
+def change_password(request):
+
+    client_id = request.data.get("client_id")
+    old_password = request.data.get("old_password")
+    new_password = request.data.get("new_password")
+
+    if not client_id:
+        return Response({"error": "client_id required"}, status=400)
+
+    try:
+        user = User.objects.get(client_id=client_id)
+    except User.DoesNotExist:
+        return Response({"error": "User not found"}, status=404)
+
+    # ✅ check password
+    from django.contrib.auth.hashers import check_password, make_password
+
+    if not check_password(old_password, user.password):
+        return Response({"error": "Old password incorrect"}, status=400)
+
+    # ✅ update password
+    user.password = make_password(new_password)
+    user.save()
+
+    return Response({"message": "Password updated successfully"})
+
+#admin views
+@api_view(["GET"])
+def admin_users(request):
+
+    users = User.objects.all().values(
+        "id", "username", "email", "client_id"
+    )
+
+    return Response(list(users))
+@api_view(["DELETE"])
+def delete_user(request, user_id):
+
+    try:
+        user = User.objects.get(id=user_id)
+        user.delete()
+        return Response({"message": "User deleted"})
+    except User.DoesNotExist:
+        return Response({"error": "User not found"}, status=404)
 
 # =========================
 # FYERS LOGIN
@@ -174,6 +316,7 @@ def fyers_callback(request):
 
     auth_code = request.GET.get("auth_code") or request.GET.get("code")
     client_id = request.GET.get("state")
+    today = timezone.now().date()
 
     if not auth_code or not client_id:
         return JsonResponse({"error": "Missing auth_code or state"})
@@ -190,6 +333,7 @@ def fyers_callback(request):
 
     AccessToken.objects.update_or_create(
     client_id=user.client_id,
+    token_date=today, 
     defaults={
         "access_token": access_token,
         "created_at": timezone.now()  # force refresh time

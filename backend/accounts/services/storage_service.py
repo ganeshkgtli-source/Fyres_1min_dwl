@@ -47,3 +47,4 @@ def get_file_data(obj):
         return gzip.decompress(obj.file_data)
     except:
         return obj.file_data
+    

